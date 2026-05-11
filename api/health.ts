@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getSupabase } from "./_lib/clients";
+import { getSupabase } from "./_lib/supabase";
 
 export default function handler(_req: VercelRequest, res: VercelResponse) {
   const sb = getSupabase();

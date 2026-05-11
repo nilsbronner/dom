@@ -5,7 +5,8 @@
 import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
-import { getSupabase, getDriveClient } from "./api/_lib/clients";
+import { getSupabase } from "./api/_lib/supabase";
+import { getDriveClient } from "./api/_lib/drive";
 import { toRow, fromRow } from "./api/_lib/mapping";
 
 async function startServer() {

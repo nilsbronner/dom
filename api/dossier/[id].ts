@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getSupabase } from "../_lib/clients";
+import { getSupabase } from "../_lib/supabase";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "DELETE") return res.status(405).json({ success: false, error: "Method not allowed" });
