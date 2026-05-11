@@ -1009,7 +1009,7 @@ function FicheDossier({ dossier, onSave, onDelete, onBack, onShowGuide }: any) {
       Donne un avis structuré (JSON si possible ou texte clair) sur le niveau de risque, la décision (Accepter/Refuser/Vigilance) et les commentaires.`;
       
       const result = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
+        model: "gemini-2.5-flash",
         contents: prompt
       });
       setAiAnalysis(result.text);

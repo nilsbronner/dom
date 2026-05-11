@@ -19,25 +19,42 @@ export async function fetchSheetData(): Promise<string> {
   }
 }
 
-/**
- * Parse sommaire du CSV pour affichage rapide si besoin
- */
+function splitCSVLine(line: string): string[] {
+  const fields: string[] = [];
+  let current = '';
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else { inQuotes = !inQuotes; }
+    } else if (ch === ',' && !inQuotes) {
+      fields.push(current.trim());
+      current = '';
+    } else {
+      current += ch;
+    }
+  }
+  fields.push(current.trim());
+  return fields;
+}
+
 export function parseCSV(csv: string): any[] {
   const lines = csv.split('\n');
   if (lines.length === 0) return [];
-  
-  const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+
+  const headers = splitCSVLine(lines[0]);
   const result = [];
-  
+
   for (let i = 1; i < lines.length; i++) {
     if (!lines[i].trim()) continue;
-    const currentLine = lines[i].split(',');
+    const values = splitCSVLine(lines[i]);
     const obj: any = {};
     headers.forEach((header, index) => {
-      obj[header] = currentLine[index]?.trim().replace(/"/g, '');
+      obj[header] = values[index] ?? '';
     });
     result.push(obj);
   }
-  
+
   return result;
 }

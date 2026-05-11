@@ -148,6 +148,58 @@ async function startServer() {
     }
   });
 
+  app.post("/api/onboarding/submit", async (req, res) => {
+    const dossier = req.body;
+    if (!dossier || !dossier.raisonSociale) {
+      return res.status(400).json({ success: false, error: "Données invalides" });
+    }
+
+    try {
+      if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET || !process.env.GOOGLE_REFRESH_TOKEN) {
+        console.log("[ONBOARDING] Nouveau dossier reçu (sans Drive):", dossier.raisonSociale);
+        return res.json({ success: true, message: "Dossier reçu. Configurez Google Drive pour le sauvegarder automatiquement." });
+      }
+
+      const auth = new google.auth.OAuth2(
+        process.env.GOOGLE_CLIENT_ID,
+        process.env.GOOGLE_CLIENT_SECRET,
+        "https://developers.google.com/oauthplayground"
+      );
+      auth.setCredentials({ refresh_token: process.env.GOOGLE_REFRESH_TOKEN });
+      const drive = google.drive({ version: "v3", auth });
+
+      const parentFolderId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID || "1KPPA5zcvLFVPdvPFDaHkJgVfAePVLGMj";
+
+      // Load existing dossiers
+      const listResponse = await drive.files.list({
+        q: `'${parentFolderId}' in parents and name = 'MASTER_DOSSIERS.json' and trashed = false`,
+        fields: "files(id, name)",
+        spaces: "drive"
+      });
+
+      let existingDossiers: any[] = [];
+      if (listResponse.data.files && listResponse.data.files.length > 0) {
+        const fileId = listResponse.data.files[0].id!;
+        const fileContent = await drive.files.get({ fileId, alt: "media" });
+        existingDossiers = Array.isArray(fileContent.data) ? fileContent.data : [];
+      }
+
+      existingDossiers.unshift({ ...dossier, sourceOnboarding: true, receivedAt: new Date().toISOString() });
+
+      const media = { mimeType: "application/json", body: JSON.stringify(existingDossiers, null, 2) };
+      if (listResponse.data.files && listResponse.data.files.length > 0) {
+        await drive.files.update({ fileId: listResponse.data.files[0].id!, media });
+      } else {
+        await drive.files.create({ requestBody: { name: "MASTER_DOSSIERS.json", parents: [parentFolderId] }, media });
+      }
+
+      res.json({ success: true, message: "Dossier transmis avec succès." });
+    } catch (error: any) {
+      console.error("Onboarding Submit Error:", error.message);
+      res.status(500).json({ success: false, error: "Erreur lors de la sauvegarde du dossier." });
+    }
+  });
+
   app.post("/api/archive-to-drive", async (req, res) => {
     const { clientName, clientId, clientData } = req.body;
 
@@ -249,7 +301,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
+    app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

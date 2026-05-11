@@ -1,5 +1,14 @@
 
 import React, { useState, useEffect } from 'react';
+
+declare global {
+  interface Window {
+    aistudio?: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
+  }
+}
 import RiskAnalysis from './components/RiskAnalysis';
 import QuarterlyCheck from './components/QuarterlyCheck';
 import EmailGenerator from './components/EmailGenerator';
@@ -51,8 +60,8 @@ const App: React.FC = () => {
   };
 
   React.useEffect(() => {
-    const handleSwitchTab = (e: any) => {
-      setActiveTab(e.detail as Tab);
+    const handleSwitchTab = (e: Event) => {
+      setActiveTab((e as CustomEvent<Tab>).detail);
     };
     window.addEventListener('switch-tab', handleSwitchTab);
     return () => window.removeEventListener('switch-tab', handleSwitchTab);
