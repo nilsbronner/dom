@@ -322,13 +322,13 @@ DONNÉES DU DOSSIER :
 - Forme juridique : ${data.legalForm}
 - Activité déclarée : ${data.activity}
 - Pays d’origine / nationalité gérant : ${data.paysOrigine} / ${data.nationaliteGerant}
-- Bénéficiaires effectifs déclarés : ${data.beneficiairesDeclares || ‘Non renseigné’}
+- Bénéficiaires effectifs déclarés : ${data.beneficiairesDeclares || 'Non renseigné'}
 - PPE : ${data.isPep}
-- Origine des fonds : ${data.origineFonds || ‘Non renseigné’}
-- Nature des transactions : ${data.natureTransactions || ‘Non renseigné’}
-- Comportement client / réactivité : ${data.comportementClient || ‘Non renseigné’}
-- Documents manquants : ${data.missingDocs || ‘Aucun’}
-- Incohérences détectées : ${data.inconsistencies || ‘Aucune’}
+- Origine des fonds : ${data.origineFonds || 'Non renseigné'}
+- Nature des transactions : ${data.natureTransactions || 'Non renseigné'}
+- Comportement client / réactivité : ${data.comportementClient || 'Non renseigné'}
+- Documents manquants : ${data.missingDocs || 'Aucun'}
+- Incohérences détectées : ${data.inconsistencies || 'Aucune'}
 `;
   return callGemini<RiskAnalysisResult>(prompt, riskAnalysisSchema);
 };
