@@ -4,7 +4,7 @@
  *
  * Design system : brand-dark #1a1a1a | brand-light #2f2f2f | brand-primary #FFC700
  * Stack : React 19 + TypeScript + Tailwind
- * Données : stockées dans localStorage (clé "grub-dossiers-v1")
+ * Données : Supabase = source de vérité, localStorage = cache de rendu instantané
  */
 
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
@@ -12,7 +12,7 @@ import {
   Plus, Shield, ChevronLeft, Search, Users, CreditCard, Mail,
   Clock, Settings, FileText, AlertTriangle, CheckCircle, XCircle,
   Bell, BarChart3, RefreshCw, ExternalLink, Eye, EyeOff, Info,
-  Building2, Trash2, ChevronRight, Sparkles, X, Filter, Download
+  Building2, Trash2, ChevronRight, Sparkles, X, Filter, Download, FolderOpen
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
@@ -21,6 +21,7 @@ import {
   OptionCourrier, TypeEchange, PeriodiciteTarif
 } from './types';
 import { GoogleGenAI } from "@google/genai";
+import { loadAll, loadCached, saveDossier, deleteDossier as deleteDossierApi, saveBulk, getLastSync } from './services/dossierService';
 
 // --- Helpers ---
 
@@ -310,79 +311,45 @@ export default function DomiciliationModule() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [lastSync, setLastSync] = useState<string | null>(null);
-  const [driveFolderId, setDriveFolderId] = useState<string | null>(localStorage.getItem('grub-drive-folder-id'));
+  const [lastSync, setLastSync] = useState<string | null>(getLastSync());
+  const [driveFolderId, setDriveFolderId] = useState<string | null>(null);
   const [showConfigGuide, setShowConfigGuide] = useState(false);
 
-  // Load data from localStorage first
+  // 1. Render instantané depuis le cache local
   useEffect(() => {
-    const saved = localStorage.getItem('grub-dossiers-v1');
-    if (saved) setDossiers(JSON.parse(saved));
-    
-    const savedSync = localStorage.getItem('grub-last-sync');
-    if (savedSync) setLastSync(savedSync);
+    const cached = loadCached();
+    if (cached.length > 0) setDossiers(cached);
   }, []);
 
-  // Sync with Drive on mount
+  // 2. Source de vérité : refresh depuis Supabase au mount
   useEffect(() => {
-    const syncWithDrive = async () => {
+    (async () => {
       setIsSyncing(true);
       setSyncError(null);
       try {
-        const res = await fetch('/api/drive/load');
-        const data = await res.json();
-        if (data.success) {
-          if (data.dossiers && data.dossiers.length > 0) {
-            setDossiers(data.dossiers);
-          }
-          if (data.lastSync) {
-            setLastSync(data.lastSync);
-            localStorage.setItem('grub-last-sync', data.lastSync);
-          }
-          if (data.parentFolderId) {
-            setDriveFolderId(data.parentFolderId);
-            localStorage.setItem('grub-drive-folder-id', data.parentFolderId);
-          }
-        } else {
-          setSyncError(data.error);
-        }
-      } catch (err) {
-        console.error("Initial Drive Sync Error:", err);
-        setSyncError("Erreur de connexion au serveur lors de la synchronisation initiale.");
+        const { dossiers: fresh, lastSync: ls } = await loadAll();
+        setDossiers(fresh);
+        if (ls) setLastSync(ls);
+      } catch (err: any) {
+        console.error("Initial Supabase sync error:", err);
+        setSyncError(err.message || "Erreur de synchronisation.");
       } finally {
         setIsSyncing(false);
       }
-    };
-    syncWithDrive();
+    })();
   }, []);
 
-  // Save data to localStorage
-  useEffect(() => {
-    localStorage.setItem('grub-dossiers-v1', JSON.stringify(dossiers));
-  }, [dossiers]);
-
+  // Bulk resync (bouton manuel — utile en cas de désynchro multi-device)
   const handleDriveSave = async () => {
     setIsSyncing(true);
     setSyncError(null);
     try {
-      const res = await fetch('/api/drive/save', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dossiers })
-      });
-      const data = await res.json();
-      if (data.success) {
-        const now = new Date().toISOString();
-        setLastSync(now);
-        localStorage.setItem('grub-last-sync', now);
-      } else {
-        setSyncError(data.error);
-        alert(data.error || "Erreur lors de la sauvegarde Cloud");
-      }
-    } catch (err) {
-      console.error("Drive Save Error:", err);
-      setSyncError("Erreur de connexion au serveur");
-      alert("Erreur de connexion au serveur");
+      await saveBulk(dossiers);
+      setLastSync(new Date().toISOString());
+    } catch (err: any) {
+      console.error("Bulk save error:", err);
+      setSyncError(err.message);
+      alert(err.message || "Erreur lors de la sauvegarde");
     } finally {
       setIsSyncing(false);
     }
@@ -392,30 +359,14 @@ export default function DomiciliationModule() {
     setIsSyncing(true);
     setSyncError(null);
     try {
-      const res = await fetch('/api/drive/load');
-      const data = await res.json();
-      if (data.success) {
-        if (data.dossiers && data.dossiers.length > 0) {
-          setDossiers(data.dossiers);
-          const now = new Date().toISOString();
-          setLastSync(now);
-          localStorage.setItem('grub-last-sync', now);
-          alert("Données chargées depuis Drive avec succès.");
-        } else {
-          alert("Aucune donnée trouvée sur Drive.");
-        }
-        if (data.parentFolderId) {
-          setDriveFolderId(data.parentFolderId);
-          localStorage.setItem('grub-drive-folder-id', data.parentFolderId);
-        }
-      } else {
-        setSyncError(data.error);
-        alert(data.error || "Erreur lors du chargement Cloud");
-      }
-    } catch (err) {
-      console.error("Drive Load Error:", err);
-      setSyncError("Erreur de connexion au serveur");
-      alert("Erreur de connexion au serveur");
+      const { dossiers: fresh, lastSync: ls } = await loadAll();
+      setDossiers(fresh);
+      if (ls) setLastSync(ls);
+      alert(`${fresh.length} dossier(s) chargé(s).`);
+    } catch (err: any) {
+      console.error("Reload error:", err);
+      setSyncError(err.message);
+      alert(err.message || "Erreur lors du chargement");
     } finally {
       setIsSyncing(false);
     }
@@ -437,16 +388,22 @@ export default function DomiciliationModule() {
     };
   }, [dossiers]);
 
-  const handleSaveDossier = (d: DossierDomiciliation) => {
+  const handleSaveDossier = async (d: DossierDomiciliation) => {
+    // Optimistic UI update
     setDossiers(prev => {
       const exists = prev.find(item => item.id === d.id);
-      if (exists) {
-        return prev.map(item => item.id === d.id ? d : item);
-      } else {
-        return [d, ...prev];
-      }
+      return exists ? prev.map(item => item.id === d.id ? d : item) : [d, ...prev];
     });
     setView('dashboard');
+
+    // Persist to Supabase (cache localStorage is updated by saveDossier)
+    try {
+      await saveDossier(d);
+    } catch (err: any) {
+      console.error("Save error:", err);
+      setSyncError(err.message);
+      alert(`Sauvegarde Supabase échouée : ${err.message}\nLes changements sont en local mais pas encore synchronisés.`);
+    }
   };
 
   const handleSimulateTally = () => {
@@ -479,16 +436,25 @@ export default function DomiciliationModule() {
     setDossiers(prev => [nouveau, ...prev]);
     setSelectedId(nouveau.id);
     setView('fiche');
+    saveDossier(nouveau).catch(err => console.error("Tally save error:", err));
   };
 
   useEffect(() => {
     (window as any).simulateTally = handleSimulateTally;
   }, [dossiers]);
 
-  const handleDeleteDossier = (id: string) => {
-    if (window.confirm('Supprimer ce dossier ?')) {
-      setDossiers(dossiers.filter(d => d.id !== id));
-      setView('dashboard');
+  const handleDeleteDossier = async (id: string) => {
+    if (!window.confirm('Supprimer ce dossier ?')) return;
+    // Optimistic UI update
+    setDossiers(prev => prev.filter(d => d.id !== id));
+    setView('dashboard');
+    // Persist to Supabase
+    try {
+      await deleteDossierApi(id);
+    } catch (err: any) {
+      console.error("Delete error:", err);
+      setSyncError(err.message);
+      alert(`Suppression Supabase échouée : ${err.message}`);
     }
   };
 
