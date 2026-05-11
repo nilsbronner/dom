@@ -11,18 +11,41 @@ declare global {
 export interface RiskAnalysisInput {
   companyName: string;
   legalForm: string;
+  // Critère 2 — Activité
   activity: string;
+  // Critère 1 — Origine géographique
+  paysOrigine: string;
+  nationaliteGerant: string;
+  // Critère 3 — Bénéficiaires effectifs
+  beneficiairesDeclares: string;
+  // Critère 4 — PPE
   isPep: string;
-  politicalLinks: string;
-  kbisDate: string;
-  uboDate: string;
+  // Critère 5 — Origine des fonds
+  origineFonds: string;
+  // Critère 6 — Nature des transactions
+  natureTransactions: string;
+  // Critère 7 — Comportement client
+  comportementClient: string;
   missingDocs: string;
   inconsistencies: string;
 }
 
+export interface RiskScores {
+  origine_geographique: number;
+  activite: number;
+  beneficiaires_effectifs: number;
+  ppe: number;
+  origine_fonds: number;
+  nature_transactions: number;
+  comportement_client: number;
+}
+
 export interface RiskAnalysisResult {
-  niveau_risque: "Faible" | "Moyen" | "Élevé";
-  decision: "Accepter" | "Accepter avec vigilance renforcée" | "Refuser";
+  niveau_risque: "Faible" | "Modéré" | "Élevé" | "Très élevé";
+  score_total: number;
+  scores: RiskScores;
+  decision: "Acceptation — vigilance standard" | "Acceptation — vigilance renforcée" | "Examen approfondi — décision collégiale" | "Refus — déclaration de soupçon TRACFIN";
+  alerte_automatique: boolean;
   commentaire: string;
 }
 

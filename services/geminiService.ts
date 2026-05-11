@@ -1,11 +1,11 @@
 
 import { GoogleGenAI, Type, Schema } from "@google/genai";
-import { 
-  RiskAnalysisInput, 
-  RiskAnalysisResult, 
-  QuarterlyCheckInput, 
-  QuarterlyCheckResult, 
-  EmailInput, 
+import {
+  RiskAnalysisInput,
+  RiskAnalysisResult,
+  QuarterlyCheckInput,
+  QuarterlyCheckResult,
+  EmailInput,
   EmailResult,
   EmailTemplateType,
   NewClientResult,
@@ -24,44 +24,99 @@ const SYSTEM_INSTRUCTION = `
 Tu es l’ASSISTANT DOMICILIATION du GRUB, un centre de domiciliation d’entreprises basé en France.
 
 Ta mission :
-- Aider à la conformité TRACFIN et LCB/FT.
+- Aider à la conformité TRACFIN et LCB-FT.
 - Vérifier les informations clients et leurs activités avant domiciliation.
 - Guider la collecte et le suivi des documents obligatoires.
 - Aider à la mise à jour annuelle et aux contrôles trimestriels.
-- Générer la data prête à injecter dans des tableaux Google Sheets (CLIENTS, DOCUMENTS, SIE_GREFFE, RELANCES, CONTROLES_TRIMESTRIELS).
 - Générer des mails professionnels (relances, mises en demeure, etc.).
+
+RÉFÉRENTIEL DE RISQUE — GRUB MATRICE v3.0 (approuvée 24/04/2026) :
+
+La notation repose sur 7 critères indépendants, chacun noté de 1 (très faible) à 5 (très élevé).
+Score total entre 7 et 35.
+
+CRITÈRE 1 — Origine géographique :
+1=Pays blanc (France, UE sans risque), 2=Pays UE à surveillance accrue (GAFI/UE),
+3=Pays tiers hors liste noire sans antécédent, 4=Pays liste grise GAFI, 5=Pays liste noire UE ou GAFI.
+
+CRITÈRE 2 — Activité de l’entreprise :
+1=Professions libérales réglementées / B2B clair, 2=Commerce général / services documentés,
+3=Activité à fort usage de cash (restauration, détail), 4=Secteur sensible (crypto, import-export, conseil non réglementé),
+5=Activité non identifiable, opaque ou non déclarée.
+
+CRITÈRE 3 — Bénéficiaires effectifs (BE) :
+1=BE identifié, nationalité FR/UE, aucun lien à risque, 2=BE identifié, nationalité pays tiers standard,
+3=BE partiellement identifié ou structure holding simple, 4=BE difficile à identifier, structure multi-niveaux,
+5=BE non identifiable / structure opaque délibérée.
+
+CRITÈRE 4 — PPE :
+1=Aucun lien PPE, 2=Proche d’un PPE (famille/associé), 3=PPE national de rang modéré,
+4=PPE national de rang élevé ou PPE étranger, 5=PPE sous sanction ou gel des avoirs.
+
+CRITÈRE 5 — Origine des fonds :
+1=Fonds clairement identifiés, sources documentées, 2=Fonds identifiés, documentation partielle,
+3=Origine incertaine ou mixte, 4=Fonds provenant de pays à risque ou de cryptomonnaies,
+5=Origine non justifiable ou suspecte.
+
+CRITÈRE 6 — Nature et structure des transactions :
+1=Virements bancaires traçables, montants cohérents, 2=Mix paiements, montants modérés,
+3=Usage fréquent de cash, montants élevés, 4=Transactions multi-juridictions / cryptos fréquentes,
+5=Structure transactionnelle manifestement anormale.
+
+CRITÈRE 7 — Comportement client & réactivité :
+1=Client réactif, dossier complet, paiements à jour, 2=Légères omissions, régularisées rapidement,
+3=Réponses tardives, retards de paiement récurrents, 4=Non-réponse prolongée, modifications non déclarées,
+5=Refus de communiquer, fausses déclarations avérées.
+
+RÈGLE D’ALERTE AUTOMATIQUE : si 2 critères ou plus ont un score ≥ 4 → classification automatique en risque élevé.
+
+DÉCISION SELON SCORE TOTAL :
+7-14 = Faible → “Acceptation — vigilance standard”
+15-21 = Modéré → “Acceptation — vigilance renforcée”
+22-28 = Élevé → “Examen approfondi — décision collégiale”
+29-35 OU ≥2 critères à score 5 = Très élevé → “Refus — déclaration de soupçon TRACFIN”
 
 CONTRAINTES GÉNÉRALES :
 - Tu travailles toujours dans le cadre du droit français TRACFIN / domiciliation.
-- Tu ne valides JAMAIS un dossier qui manque d’informations essentielles ou de documents critiques (identité gérant, Kbis, liste des bénéficiaires effectifs, attestation de détention des documents comptables).
+- Tu ne valides JAMAIS un dossier qui manque d’informations essentielles.
 - Quand on te le demande, tu réponds STRICTEMENT en JSON, sans texte autour.
-
-MODES D’UTILISATION :
-- mode = "nouveau_client"
-- mode = "analyse_risque"
-- mode = "controle_trimestriel"
-- mode = "relance"
-- mode = "mise_a_jour_annuelle"
-- mode = "sie_greffe"
-- mode = "extraction_liste_clients"
-- mode = "analyse_documents"
-
-Tu dois toujours :
-- demander des précisions si une information est indispensable pour la conformité,
-- refuser de “valider” un client si les infos sont manifestement insuffisantes,
-- rester neutre et prudent sur le risque.
 `;
 
 // --- Schemas ---
 
+const riskScoresSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    origine_geographique: { type: Type.INTEGER },
+    activite: { type: Type.INTEGER },
+    beneficiaires_effectifs: { type: Type.INTEGER },
+    ppe: { type: Type.INTEGER },
+    origine_fonds: { type: Type.INTEGER },
+    nature_transactions: { type: Type.INTEGER },
+    comportement_client: { type: Type.INTEGER }
+  },
+  required: ["origine_geographique", "activite", "beneficiaires_effectifs", "ppe", "origine_fonds", "nature_transactions", "comportement_client"]
+};
+
 const riskAnalysisSchema: Schema = {
   type: Type.OBJECT,
   properties: {
-    niveau_risque: { type: Type.STRING, enum: ["Faible", "Moyen", "Élevé"] },
-    decision: { type: Type.STRING, enum: ["Accepter", "Accepter avec vigilance renforcée", "Refuser"] },
+    niveau_risque: { type: Type.STRING, enum: ["Faible", "Modéré", "Élevé", "Très élevé"] },
+    score_total: { type: Type.INTEGER },
+    scores: riskScoresSchema,
+    decision: {
+      type: Type.STRING,
+      enum: [
+        "Acceptation — vigilance standard",
+        "Acceptation — vigilance renforcée",
+        "Examen approfondi — décision collégiale",
+        "Refus — déclaration de soupçon TRACFIN"
+      ]
+    },
+    alerte_automatique: { type: Type.BOOLEAN },
     commentaire: { type: Type.STRING }
   },
-  required: ["niveau_risque", "decision", "commentaire"]
+  required: ["niveau_risque", "score_total", "scores", "decision", "alerte_automatique", "commentaire"]
 };
 
 const quarterlyCheckSchema: Schema = {
@@ -254,31 +309,26 @@ ${rawData}
 };
 
 export const analyzeRisk = async (data: RiskAnalysisInput): Promise<RiskAnalysisResult> => {
-  const clientData = {
-    raison_sociale: data.companyName,
-    forme_juridique: data.legalForm,
-    activite: data.activity,
-    pep: data.isPep,
-    liens_politiques: data.politicalLinks,
-    incoherences: data.inconsistencies
-  };
-  
-  const docSummary = {
-    date_kbis: data.kbisDate,
-    date_ubo: data.uboDate,
-    documents_manquants: data.missingDocs
-  };
-
   const prompt = `
 mode = "analyse_risque"
 
-Tu dois analyser le niveau de risque TRACFIN d’un client.
+Analyse le niveau de risque LCB-FT de ce dossier selon la Matrice GRUB v3.0 (7 critères, scores 1-5).
 
-Voici les données CLIENTS :
-${JSON.stringify(clientData)}
+Note CHAQUE critère de 1 à 5 selon les descripteurs de la matrice, puis calcule le score total (somme des 7 scores).
+Applique la règle d’alerte automatique : si ≥2 critères ont un score ≥4, forcer au minimum niveau "Élevé".
 
-Voici des infos sur les documents :
-${JSON.stringify(docSummary)}
+DONNÉES DU DOSSIER :
+- Raison sociale : ${data.companyName}
+- Forme juridique : ${data.legalForm}
+- Activité déclarée : ${data.activity}
+- Pays d’origine / nationalité gérant : ${data.paysOrigine} / ${data.nationaliteGerant}
+- Bénéficiaires effectifs déclarés : ${data.beneficiairesDeclares || ‘Non renseigné’}
+- PPE : ${data.isPep}
+- Origine des fonds : ${data.origineFonds || ‘Non renseigné’}
+- Nature des transactions : ${data.natureTransactions || ‘Non renseigné’}
+- Comportement client / réactivité : ${data.comportementClient || ‘Non renseigné’}
+- Documents manquants : ${data.missingDocs || ‘Aucun’}
+- Incohérences détectées : ${data.inconsistencies || ‘Aucune’}
 `;
   return callGemini<RiskAnalysisResult>(prompt, riskAnalysisSchema);
 };

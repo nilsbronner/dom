@@ -97,47 +97,121 @@ const dossierVide = (): DossierDomiciliation => ({
   historique: []
 });
 
-const evaluerRisque = (d: DossierDomiciliation): { niveau: NiveauRisque; alertes: AlerteTracfin[] } => {
+// Implémente la Matrice des risques GRUB v3.0 — 7 critères, scores 1-5, total 7-35
+const evaluerRisque = (d: DossierDomiciliation): { niveau: NiveauRisque; alertes: AlerteTracfin[]; scoreTotal: number } => {
   const alertes: AlerteTracfin[] = [];
-  let score = 0;
+  const scores: number[] = [];
 
-  // B-A BA TRACFIN Checks
-  if (d.estPPE) {
-    score += 50;
-    alertes.push({ type: 'rouge', msg: 'Client PPE', detail: 'Le gérant ou un bénéficiaire est une Personne Politiquement Exposée.' });
-  }
+  // Critère 1 — Origine géographique
+  const pays = (d.paysOrigine || '').trim();
+  const paysListeNoire = ['Iran', 'Corée du Nord', 'Myanmar', 'Syrie', 'Yémen', 'Russie', 'Belarus', 'Cuba', 'Libye', 'Somalie', 'Corée'];
+  const paysListeGrise = ['Algérie', 'Angola', 'Burkina Faso', 'Cameroun', 'Haïti', 'Jamaïque', 'Mali', 'Mozambique', 'Nigéria', 'Philippines', 'Sénégal', 'Tanzanie', 'Vietnam', 'Éthiopie', 'Liban', 'Mongolie', 'Syrie', 'Myanmar'];
+  const paysUESurveillance = ['Bulgarie', 'Malte', 'Chypre', 'Croatie', 'Roumanie'];
+  const paysBlancs = ['France', 'Allemagne', 'Espagne', 'Italie', 'Belgique', 'Pays-Bas', 'Luxembourg', 'Portugal', 'Autriche', 'Suisse', 'Danemark', 'Suède', 'Finlande', 'Irlande', 'Pologne', 'Tchéquie', 'Hongrie', 'Slovaquie', 'Slovénie', 'Estonie', 'Lettonie', 'Lituanie', 'Grèce'];
+  let scoreGeo = 3;
+  if (!pays) scoreGeo = 3;
+  else if (paysListeNoire.some(p => pays.toLowerCase().includes(p.toLowerCase()))) scoreGeo = 5;
+  else if (paysListeGrise.some(p => pays.toLowerCase().includes(p.toLowerCase()))) scoreGeo = 4;
+  else if (paysUESurveillance.some(p => pays.toLowerCase().includes(p.toLowerCase()))) scoreGeo = 2;
+  else if (paysBlancs.some(p => pays.toLowerCase().includes(p.toLowerCase()))) scoreGeo = 1;
+  scores.push(scoreGeo);
+  if (scoreGeo === 5) alertes.push({ type: 'rouge', msg: 'Pays liste noire', detail: `Pays d'origine (${pays}) classé liste noire UE/GAFI. Refus ou signalement TRACFIN.` });
+  else if (scoreGeo === 4) alertes.push({ type: 'rouge', msg: 'Pays liste grise GAFI', detail: `Pays d'origine (${pays}) sous surveillance renforcée GAFI.` });
+  else if (scoreGeo === 3) alertes.push({ type: 'orange', msg: 'Pays tiers hors UE', detail: `Pays d'origine (${pays}) — vigilance renforcée requise.` });
 
-  const paysRisque = ['Iran', 'Corée du Nord', 'Myanmar', 'Syrie', 'Yémen', 'Russie'];
-  if (paysRisque.includes(d.paysOrigine)) {
-    score += 40;
-    alertes.push({ type: 'rouge', msg: 'Pays à haut risque', detail: `Le pays d'origine (${d.paysOrigine}) est sur liste noire ou sous sanctions.` });
-  }
+  // Critère 2 — Activité
+  const act = (d.activite || '').toLowerCase();
+  const activitesSensibles4 = ['crypto', 'bitcoin', 'import-export', 'import export', 'forex', 'trading', 'change monnaie', 'immobilier', 'art ', 'diamant', 'casino', 'armement'];
+  const activitesCash = ['restauration', 'restaurant', 'bar ', 'café', 'détail', 'coiffure', 'esthétique', 'beauté', 'nettoyage', 'blanchisserie', 'taxi', 'btp', 'travaux'];
+  const activitesLiberales = ['avocat', 'notaire', 'médecin', 'comptable', 'expert-comptable', 'architecte', 'ingénieur conseil', 'consultant b2b', 'audit'];
+  let scoreActivite = 2;
+  if (!act || act.length < 5) scoreActivite = 5;
+  else if (activitesSensibles4.some(k => act.includes(k))) scoreActivite = 4;
+  else if (activitesCash.some(k => act.includes(k))) scoreActivite = 3;
+  else if (activitesLiberales.some(k => act.includes(k))) scoreActivite = 1;
+  scores.push(scoreActivite);
+  if (scoreActivite === 5) alertes.push({ type: 'rouge', msg: 'Activité non identifiable', detail: 'Activité opaque ou non déclarée — refus ou signalement.' });
+  else if (scoreActivite === 4) alertes.push({ type: 'rouge', msg: 'Activité à risque élevé', detail: `Secteur (${d.activite}) nécessite vigilance renforcée et justificatifs.` });
+  else if (scoreActivite === 3) alertes.push({ type: 'orange', msg: 'Activité à usage de cash', detail: `L'activité (${d.activite}) présente un risque sectoriel TRACFIN.` });
 
-  if (d.appartenancePolitiqueReligieuse) {
-    score += 20;
-    alertes.push({ type: 'orange', msg: 'Appartenance sensible', detail: 'Déclaration d\'appartenance à un organisme politique ou religieux.' });
-  }
+  // Critère 3 — Bénéficiaires effectifs
+  const beDeclaresOk = (d.beneficiairesDeclares || '').trim().length > 3;
+  const listePresente = d.docs?.listeBeneficiaires ?? false;
+  const cniBePresente = d.docs?.cniBeneficiaires ?? false;
+  let scoreBE = 3;
+  if (!beDeclaresOk && !listePresente) scoreBE = 5;
+  else if (listePresente && !cniBePresente) scoreBE = 3;
+  else if (listePresente && cniBePresente && beDeclaresOk) scoreBE = 1;
+  else if (listePresente && cniBePresente) scoreBE = 2;
+  scores.push(scoreBE);
+  if (scoreBE >= 4) alertes.push({ type: 'rouge', msg: 'BE non identifiés', detail: 'Bénéficiaires effectifs non déclarés ou documents KYC manquants.' });
+  else if (scoreBE === 3) alertes.push({ type: 'orange', msg: 'Dossier BE incomplet', detail: 'Liste des BE présente mais CNI manquante.' });
 
-  const activitesSensibles = ['crypto', 'immobilier', 'art', 'diamant', 'casino', 'armement', 'import-export', 'conseil'];
-  if (activitesSensibles.some(a => d.activite.toLowerCase().includes(a))) {
-    score += 15;
-    alertes.push({ type: 'orange', msg: 'Activité sensible', detail: `L'activité (${d.activite}) présente un risque sectoriel selon TRACFIN.` });
-  }
+  // Critère 4 — PPE
+  let scorePPE = 1;
+  if (d.estPPE) scorePPE = 4;
+  else if (d.appartenancePolitiqueReligieuse) scorePPE = 2;
+  scores.push(scorePPE);
+  if (scorePPE === 5) alertes.push({ type: 'rouge', msg: 'PPE sous sanction', detail: 'PPE sous sanction ou gel des avoirs — refus + déclaration de soupçon.' });
+  else if (scorePPE === 4) alertes.push({ type: 'rouge', msg: 'PPE identifié', detail: 'Gérant ou bénéficiaire PPE national/étranger — vigilance renforcée obligatoire.' });
+  else if (scorePPE === 2) alertes.push({ type: 'orange', msg: 'Lien politique/religieux', detail: 'Appartenance déclarée à un organisme politique ou religieux.' });
 
-  // Document checks
-  const docsObligatoires = ['cniGerant', 'justifDomicileGerant', 'statuts', 'kbis', 'attestationCompta', 'listeBeneficiaires', 'contratSigne'];
-  const manquants = docsObligatoires.filter(key => !d.docs[key as keyof typeof d.docs]);
-  
-  if (manquants.length > 0) {
-    score += manquants.length * 5;
-    alertes.push({ type: 'orange', msg: 'Dossier incomplet', detail: `${manquants.length} document(s) obligatoire(s) manquant(s).` });
-  }
+  // Critère 5 — Origine des fonds
+  const fonds = (d.origineFonds || '').toLowerCase();
+  let scoreFonds = 3;
+  if (!fonds || fonds.length < 5) scoreFonds = 4;
+  else if (['crypto', 'bitcoin', 'monnaie virtuelle', 'pays étranger', 'étranger'].some(k => fonds.includes(k))) scoreFonds = 4;
+  else if (['non justifi', 'inconnu', 'suspect'].some(k => fonds.includes(k))) scoreFonds = 5;
+  else if (['clair', 'identifié', 'salaire', 'épargne', 'apport', 'revenus d\'activité', 'activité professionnelle'].some(k => fonds.includes(k))) scoreFonds = 1;
+  else if (['partiel', 'mixte', 'divers'].some(k => fonds.includes(k))) scoreFonds = 3;
+  else scoreFonds = 2;
+  scores.push(scoreFonds);
+  if (scoreFonds >= 5) alertes.push({ type: 'rouge', msg: 'Fonds suspects', detail: 'Origine des fonds non justifiable — déclaration de soupçon requise.' });
+  else if (scoreFonds === 4) alertes.push({ type: 'rouge', msg: 'Fonds à risque', detail: 'Origine des fonds non documentée ou provenant de pays à risque / cryptos.' });
+  else if (scoreFonds === 3) alertes.push({ type: 'orange', msg: 'Origine des fonds incertaine', detail: 'Documentation de l\'origine des fonds incomplète.' });
+
+  // Critère 6 — Nature des transactions (déduit de l'activité et utilisation adresse)
+  const util = (d.utilisationAdresse || '').toLowerCase();
+  let scoreTx = 1;
+  if (scoreActivite === 5) scoreTx = 5;
+  else if (scoreActivite === 4 || util.includes('crypto') || util.includes('multi')) scoreTx = 4;
+  else if (scoreActivite === 3 || util.includes('cash') || util.includes('espèces')) scoreTx = 3;
+  scores.push(scoreTx);
+  if (scoreTx >= 4 && scoreTx > scoreActivite) alertes.push({ type: 'rouge', msg: 'Transactions à risque', detail: 'Structure des transactions nécessite vigilance renforcée.' });
+
+  // Critère 7 — Comportement client
+  const retardPaiement = (d.paiements ?? []).some(p => p.statut === 'impaye' || p.statut === 'retard');
+  const relancesCount = (d.relances ?? []).filter(r => r.type !== 'Aucune').length;
+  const docsObligatoires: (keyof typeof d.docs)[] = ['cniGerant', 'justifDomicileGerant', 'statuts', 'kbis', 'attestationCompta', 'listeBeneficiaires', 'contratSigne'];
+  const manquants = docsObligatoires.filter(k => !d.docs?.[k]);
+  let scoreComportement = 1;
+  if (relancesCount >= 3) scoreComportement = 5;
+  else if (relancesCount >= 2 || (retardPaiement && manquants.length >= 2)) scoreComportement = 4;
+  else if (retardPaiement || manquants.length >= 2) scoreComportement = 3;
+  else if (manquants.length === 1) scoreComportement = 2;
+  scores.push(scoreComportement);
+  if (scoreComportement === 5) alertes.push({ type: 'rouge', msg: 'Comportement non coopératif', detail: `${relancesCount} relances sans régularisation — résiliation + signalement TRACFIN.` });
+  else if (scoreComportement === 4) alertes.push({ type: 'rouge', msg: 'Non-réponse prolongée', detail: 'Mise en demeure LRAR requise.' });
+  else if (manquants.length > 0) alertes.push({ type: 'orange', msg: 'Dossier incomplet', detail: `${manquants.length} document(s) obligatoire(s) manquant(s).` });
+
+  // --- Décision finale — Matrice GRUB v3.0 ---
+  const scoreTotal = scores.reduce((a, b) => a + b, 0);
+  const criteresEleveCount = scores.filter(s => s >= 4).length;
+  const criteres5Count = scores.filter(s => s === 5).length;
+  const alerte2criteres = criteresEleveCount >= 2;
 
   let niveau: NiveauRisque = 'vert';
-  if (score >= 40) niveau = 'rouge';
-  else if (score >= 15) niveau = 'orange';
+  if (scoreTotal >= 29 || criteres5Count >= 2) {
+    niveau = 'rouge';
+    alertes.push({ type: 'rouge', msg: '⚠ Risque TRÈS ÉLEVÉ — Signalement TRACFIN', detail: `Score ${scoreTotal}/35. Refus systématique + déclaration de soupçon ERMES/TRACFIN obligatoire.` });
+  } else if (scoreTotal >= 22 || alerte2criteres) {
+    niveau = 'rouge';
+    if (alerte2criteres) alertes.push({ type: 'rouge', msg: '⚠ Alerte automatique — Risque élevé', detail: `${criteresEleveCount} critères avec score ≥ 4 (règle d'alerte GRUB v3.0).` });
+  } else if (scoreTotal >= 15) {
+    niveau = 'orange';
+  }
 
-  return { niveau, alertes };
+  return { niveau, alertes, scoreTotal };
 };
 
 // --- UI Components ---
