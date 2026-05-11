@@ -1023,43 +1023,7 @@ function FicheDossier({ dossier, onSave, onDelete, onBack, onShowGuide }: any) {
   const [editDossier, setEditDossier] = useState<DossierDomiciliation>(dossier);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [isArchiving, setIsArchiving] = useState(false);
-  const [archiveError, setArchiveError] = useState<string | null>(null);
-
   const update = (fields: Partial<DossierDomiciliation>) => setEditDossier({ ...editDossier, ...fields });
-
-  const handleArchiveToDrive = async () => {
-    setIsArchiving(true);
-    setArchiveError(null);
-    try {
-      const res = await fetch('/api/archive-to-drive', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientName: editDossier.raisonSociale,
-          clientId: editDossier.id,
-          clientData: editDossier
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        update({
-          driveFolderId: data.folderId,
-          driveFolderUrl: data.folderUrl
-        });
-        alert(data.message || "Archivage réussi");
-      } else {
-        setArchiveError(data.error);
-        alert(data.error || "Erreur lors de l'archivage");
-      }
-    } catch (err) {
-      console.error("Archive Error:", err);
-      setArchiveError("Erreur de connexion au serveur");
-      alert("Erreur de connexion au serveur");
-    } finally {
-      setIsArchiving(false);
-    }
-  };
 
   const handleAiAnalysis = async (mode: string = "analyse_risque") => {
     setIsAnalyzing(true);
@@ -1183,49 +1147,17 @@ function FicheDossier({ dossier, onSave, onDelete, onBack, onShowGuide }: any) {
                 <Inp label="Adresse Personnelle" value={editDossier.adresseDomicile} onChange={(v: string) => update({ adresseDomicile: v })} />
                 
                 <div className="pt-4">
-                  <h4 className="text-xs font-black text-slate-200 uppercase tracking-[0.2em] mb-3">Archivage Cloud</h4>
-                  {archiveError && (
-                    <div className="mb-4 p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
-                      <div className="text-[10px] text-rose-200">
-                        <p className="font-bold">Erreur Drive :</p>
-                        <p>{archiveError}</p>
-                        <button onClick={onShowGuide} className="mt-1 text-brand-primary hover:underline font-bold">Voir le guide</button>
-                      </div>
+                  <h4 className="text-xs font-black text-slate-200 uppercase tracking-[0.2em] mb-3">Documents stockés</h4>
+                  <div className="flex items-center gap-3 p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
+                    <div className="bg-slate-700 p-2 rounded-lg">
+                      <FolderOpen className="w-5 h-5 text-brand-primary" />
                     </div>
-                  )}
-                  {editDossier.driveFolderUrl ? (
-                    <a 
-                      href={editDossier.driveFolderUrl} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-3 p-4 bg-indigo-500/10 border border-indigo-500/20 rounded-xl hover:bg-indigo-500/20 transition-all group"
-                    >
-                      <div className="bg-indigo-500 p-2 rounded-lg">
-                        <ExternalLink className="w-5 h-5 text-white" />
-                      </div>
-                      <div>
-                        <p className="text-sm font-bold text-white group-hover:text-brand-primary transition-colors">Dossier Google Drive</p>
-                        <p className="text-[10px] text-slate-300 uppercase tracking-widest">Accès aux documents archivés</p>
-                      </div>
-                    </a>
-                  ) : (
-                    <button 
-                      onClick={handleArchiveToDrive}
-                      disabled={isArchiving}
-                      className="w-full flex items-center gap-3 p-4 bg-slate-800/50 border border-slate-700 rounded-xl hover:bg-slate-800 transition-all group disabled:opacity-50"
-                    >
-                      <div className={`p-2 rounded-lg ${isArchiving ? 'bg-indigo-500 animate-pulse' : 'bg-slate-700'}`}>
-                        <RefreshCw className={`w-5 h-5 text-white ${isArchiving ? 'animate-spin' : ''}`} />
-                      </div>
-                      <div className="text-left">
-                        <p className="text-sm font-bold text-slate-100 group-hover:text-brand-primary transition-colors">
-                          {isArchiving ? 'Création du dossier...' : 'Créer un dossier Drive'}
-                        </p>
-                        <p className="text-[10px] text-slate-400 uppercase tracking-widest">Archivage Cloud & Documents</p>
-                      </div>
-                    </button>
-                  )}
+                    <div className="text-left text-[11px] text-slate-300 leading-tight">
+                      Les fichiers KYC/Statuts/Contrats sont gérés depuis l'onglet
+                      <span className="text-white font-bold"> Documents</span> (Supabase Storage).
+                      Sélectionne ce client là-bas pour upload/preview/téléchargement.
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

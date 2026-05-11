@@ -4,10 +4,16 @@
 
 import express from "express";
 import { createServer as createViteServer } from "vite";
-import path from "path";
 import { getSupabase } from "./api/_lib/supabase.js";
-import { getDriveClient } from "./api/_lib/drive.js";
-import { toRow, fromRow } from "./api/_lib/mapping";
+import { toRow, fromRow } from "./api/_lib/mapping.js";
+import {
+  createSignedUploadUrl,
+  listDossierFiles,
+  createSignedDownloadUrl,
+  deleteFile,
+  CATEGORIES,
+  type Category,
+} from "./api/_lib/storage.js";
 
 async function startServer() {
   const app = express();
@@ -24,19 +30,12 @@ async function startServer() {
   // --- Charger tous les dossiers ---
   app.get("/api/drive/load", async (_req, res) => {
     const sb = getSupabase();
-    if (!sb) {
-      return res.json({ success: true, dossiers: [], message: "Supabase non configuré — données locales uniquement." });
-    }
+    if (!sb) return res.json({ success: true, dossiers: [], message: "Supabase non configuré." });
     try {
-      const { data, error } = await sb
-        .from("dossiers")
-        .select("*")
-        .order("created_at", { ascending: false });
-
+      const { data, error } = await sb.from("dossiers").select("*").order("created_at", { ascending: false });
       if (error) throw error;
       res.json({ success: true, dossiers: (data ?? []).map(fromRow), lastSync: new Date().toISOString() });
     } catch (err: any) {
-      console.error("Supabase load error:", err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -44,20 +43,14 @@ async function startServer() {
   // --- Sauvegarder tous les dossiers (upsert) ---
   app.post("/api/drive/save", async (req, res) => {
     const sb = getSupabase();
-    if (!sb) {
-      return res.status(400).json({ success: false, error: "Supabase non configuré. Ajoutez SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY dans votre .env" });
-    }
+    if (!sb) return res.status(400).json({ success: false, error: "Supabase non configuré." });
     const { dossiers } = req.body as { dossiers: any[] };
-    if (!Array.isArray(dossiers)) {
-      return res.status(400).json({ success: false, error: "Format invalide" });
-    }
+    if (!Array.isArray(dossiers)) return res.status(400).json({ success: false, error: "Format invalide" });
     try {
-      const rows = dossiers.map(toRow);
-      const { error } = await sb.from("dossiers").upsert(rows, { onConflict: "id" });
+      const { error } = await sb.from("dossiers").upsert(dossiers.map(toRow), { onConflict: "id" });
       if (error) throw error;
-      res.json({ success: true, message: `${rows.length} dossier(s) synchronisé(s).` });
+      res.json({ success: true, message: `${dossiers.length} dossier(s) synchronisé(s).` });
     } catch (err: any) {
-      console.error("Supabase save error:", err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -73,7 +66,6 @@ async function startServer() {
       if (error) throw error;
       res.json({ success: true });
     } catch (err: any) {
-      console.error("Supabase dossier/save error:", err.message);
       res.status(500).json({ success: false, error: err.message });
     }
   });
@@ -91,67 +83,78 @@ async function startServer() {
     }
   });
 
-  // --- Formulaire client public (onboarding) ---
+  // --- Onboarding public ---
   app.post("/api/onboarding/submit", async (req, res) => {
     const dossier = req.body;
     if (!dossier?.raisonSociale) return res.status(400).json({ success: false, error: "Données invalides" });
     const sb = getSupabase();
-    if (!sb) {
-      console.log("[ONBOARDING] Nouveau dossier reçu (Supabase non configuré):", dossier.raisonSociale);
-      return res.json({ success: true, message: "Dossier reçu. Configurez Supabase pour le sauvegarder automatiquement." });
-    }
+    if (!sb) return res.json({ success: true, message: "Dossier reçu (Supabase non configuré)." });
     try {
-      const row = toRow({ ...dossier, source_onboarding: true });
-      const { error } = await sb.from("dossiers").upsert(row, { onConflict: "id" });
+      const { error } = await sb.from("dossiers").upsert(toRow({ ...dossier, source_onboarding: true }), { onConflict: "id" });
       if (error) throw error;
       res.json({ success: true, message: "Dossier transmis avec succès." });
     } catch (err: any) {
-      console.error("Onboarding error:", err.message);
       res.status(500).json({ success: false, error: "Erreur lors de la sauvegarde du dossier." });
     }
   });
 
-  // --- Archive vers Google Drive ---
-  app.post("/api/archive-to-drive", async (req, res) => {
-    const { clientName, clientData } = req.body;
-    const drive = getDriveClient();
-    if (!drive) {
-      return res.status(400).json({ success: false, error: "Google Drive non configuré." });
-    }
+  // --- Storage : signed upload URL ---
+  app.post("/api/storage/sign-upload", async (req, res) => {
+    const { dossierId, category, filename } = req.body as { dossierId?: string; category?: string; filename?: string };
+    if (!dossierId || !category || !filename) return res.status(400).json({ success: false, error: "dossierId, category, filename requis" });
+    if (!CATEGORIES.includes(category as Category)) return res.status(400).json({ success: false, error: `category invalide` });
     try {
-      const parentFolderId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID || "1KPPA5zcvLFVPdvPFDaHkJgVfAePVLGMj";
-      const folder = await drive.files.create({
-        requestBody: { name: `CLIENT - ${clientName}`, mimeType: "application/vnd.google-apps.folder", parents: [parentFolderId] },
-        fields: "id, webViewLink",
-      });
-      const folderId = folder.data.id!;
-      const folderUrl = folder.data.webViewLink!;
-      await drive.files.create({
-        requestBody: { name: "RESUME_CLIENT.json", parents: [folderId] },
-        media: { mimeType: "application/json", body: JSON.stringify(clientData, null, 2) },
-        fields: "id",
-      });
-      res.json({ success: true, folderId, folderUrl, message: `Dossier Drive créé pour ${clientName}` });
-    } catch (error: any) {
-      console.error("Drive Archive Error:", error.message);
-      const msg = error.message?.includes("insufficientPermissions") || error.message?.includes("403")
-        ? `Partagez le dossier Drive avec : ${process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL}`
-        : error.message;
-      res.status(500).json({ success: false, error: msg });
+      const out = await createSignedUploadUrl(dossierId, category as Category, filename);
+      res.json({ success: true, ...out });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- Storage : list ---
+  app.get("/api/storage/list", async (req, res) => {
+    const dossierId = typeof req.query.dossierId === "string" ? req.query.dossierId : undefined;
+    if (!dossierId) return res.status(400).json({ success: false, error: "dossierId requis" });
+    try {
+      const files = await listDossierFiles(dossierId);
+      res.json({ success: true, files });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- Storage : signed download URL ---
+  app.get("/api/storage/sign-url", async (req, res) => {
+    const path = typeof req.query.path === "string" ? req.query.path : undefined;
+    const expiresIn = typeof req.query.expiresIn === "string" ? parseInt(req.query.expiresIn, 10) : 3600;
+    if (!path) return res.status(400).json({ success: false, error: "path requis" });
+    try {
+      const url = await createSignedDownloadUrl(path, Number.isFinite(expiresIn) ? expiresIn : 3600);
+      res.json({ success: true, url });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
+  // --- Storage : delete ---
+  app.post("/api/storage/delete", async (req, res) => {
+    const path = req.body?.path;
+    if (!path) return res.status(400).json({ success: false, error: "path requis" });
+    try {
+      await deleteFile(path);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
     }
   });
 
   // --- Vite dev middleware ---
-  const vite = await createViteServer({
-    server: { middlewareMode: true },
-    appType: "spa",
-  });
+  const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
   app.use(vite.middlewares);
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Local dev server: http://localhost:${PORT}`);
-    console.log(`Supabase: ${getSupabase() ? "✓ connecté" : "✗ non configuré"}`);
-    console.log(`Drive:    ${getDriveClient() ? "✓ connecté" : "✗ non configuré"}`);
+    console.log(`Supabase: ${getSupabase() ? "✓" : "✗"}`);
   });
 }
 

@@ -10,8 +10,6 @@ const NewClientAnalysis: React.FC = () => {
   const [rawData, setRawData] = useState('');
   const [result, setResult] = useState<NewClientResult | null>(null);
   const [saved, setSaved] = useState(false);
-  const [archiving, setArchiving] = useState(false);
-  const [archiveResult, setArchiveResult] = useState<{ folderUrl: string; message: string; error?: string } | null>(null);
 
   React.useEffect(() => {
     const pending = localStorage.getItem('grub-pending-analysis');
@@ -112,48 +110,6 @@ const NewClientAnalysis: React.FC = () => {
 
     localStorage.setItem('grub-dossiers-v1', JSON.stringify([...existingDossiers, newDossier]));
     setSaved(true);
-    
-    // Auto-archive to Drive if possible
-    handleArchiveToDrive(newDossier);
-  };
-
-  const handleArchiveToDrive = async (dossier: DossierDomiciliation) => {
-    setArchiving(true);
-    try {
-      const response = await fetch('/api/archive-to-drive', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          clientName: dossier.raisonSociale,
-          clientId: dossier.id,
-          clientData: dossier
-        })
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        setArchiveResult({ folderUrl: data.folderUrl, message: data.message });
-        
-        // Update dossier with Drive info
-        const existingDossiersRaw = localStorage.getItem('grub-dossiers-v1');
-        if (existingDossiersRaw) {
-          const existingDossiers: DossierDomiciliation[] = JSON.parse(existingDossiersRaw);
-          const updated = existingDossiers.map(d => d.id === dossier.id ? { 
-            ...d, 
-            driveFolderId: data.folderId, 
-            driveFolderUrl: data.folderUrl 
-          } : d);
-          localStorage.setItem('grub-dossiers-v1', JSON.stringify(updated));
-        }
-      } else {
-        setArchiveResult({ folderUrl: '', message: data.error || "Erreur d'archivage", error: data.error });
-      }
-    } catch (err) {
-      console.error("Archive error:", err);
-      setArchiveResult({ folderUrl: '', message: "Erreur de connexion au serveur d'archivage.", error: String(err) });
-    } finally {
-      setArchiving(false);
-    }
   };
 
   return (
@@ -230,47 +186,6 @@ const NewClientAnalysis: React.FC = () => {
               {saved ? "Dossier Enregistré" : "Créer le Dossier de Domiciliation"}
             </button>
           </div>
-
-          {archiveResult && (
-            <div className={`${archiveResult.error ? 'bg-rose-500/10 border-rose-500/20' : 'bg-brand-primary/10 border-brand-primary/20'} border rounded-xl p-4 flex items-center justify-between animate-in fade-in slide-in-from-top-2 duration-300`}>
-              <div className="flex items-center gap-3">
-                <div className={`${archiveResult.error ? 'bg-rose-500/20' : 'bg-brand-primary/20'} p-2 rounded-lg`}>
-                  {archiveResult.error ? <AlertTriangle className="w-5 h-5 text-rose-400" /> : <ExternalLink className="w-5 h-5 text-brand-primary" />}
-                </div>
-                <div>
-                  <p className={`text-sm font-bold ${archiveResult.error ? 'text-rose-200' : 'text-brand-primary'}`}>{archiveResult.error ? 'Erreur d\'Archivage Cloud' : 'Archivage Cloud Réussi'}</p>
-                  <p className={`text-xs ${archiveResult.error ? 'text-rose-400' : 'text-slate-300'}`}>{archiveResult.message}</p>
-                </div>
-              </div>
-              {archiveResult.folderUrl && (
-                <a 
-                  href={archiveResult.folderUrl} 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="bg-brand-dark text-brand-primary border border-brand-primary/30 px-4 py-2 rounded-lg text-xs font-bold hover:bg-brand-primary/10 transition"
-                >
-                  Ouvrir le dossier Drive
-                </a>
-              )}
-              {archiveResult.error?.includes("n'est pas activée") && (
-                <a 
-                  href="https://console.cloud.google.com/apis/library/drive.googleapis.com" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="bg-rose-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-rose-700 transition"
-                >
-                  Activer l'API Drive
-                </a>
-              )}
-            </div>
-          )}
-
-          {archiving && (
-            <div className="bg-brand-dark/50 border border-slate-700 rounded-xl p-4 flex items-center gap-3 animate-pulse">
-              <Loader2 className="w-5 h-5 text-brand-primary animate-spin" />
-              <p className="text-sm font-medium text-slate-300">Archivage systématique sur Google Drive en cours...</p>
-            </div>
-          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Alerts Section */}
