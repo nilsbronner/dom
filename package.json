@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
+    "@vercel/node": "^5.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "supabase": "^2.23.0",
     "typescript": "~5.8.2",
