@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getSupabase } from "../_lib/supabase";
-import { toRow } from "../_lib/mapping";
+import { getSupabase } from "../_lib/supabase.js";
+import { toRow } from "../_lib/mapping.js";
 
 export const config = {
   api: {

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { getSupabase } from "../_lib/supabase";
-import { toRow } from "../_lib/mapping";
+import { getSupabase } from "../_lib/supabase.js";
+import { toRow } from "../_lib/mapping.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== "POST") return res.status(405).json({ success: false, error: "Method not allowed" });

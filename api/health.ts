@@ -1,9 +1,11 @@
-export default function handler(_req: any, res: any) {
-  res.status(200).json({
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { getSupabase } from "./_lib/supabase.js";
+
+export default function handler(_req: VercelRequest, res: VercelResponse) {
+  const sb = getSupabase();
+  res.json({
     status: "ok",
-    runtime: "node",
-    hasSupabaseUrl: !!process.env.SUPABASE_URL,
-    hasSupabaseKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+    supabase: sb ? "configured" : "not configured",
     hasDriveEmail: !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
     hasDriveKey: !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
   });
