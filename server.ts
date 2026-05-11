@@ -2,6 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { createClient } from "@supabase/supabase-js";
+import { google } from "googleapis";
 
 // --- Supabase client (server-side, service role) ---
 
@@ -10,6 +11,18 @@ function getSupabase() {
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !key) return null;
   return createClient(url, key, { auth: { persistSession: false } });
+}
+
+// --- Google Drive - Service Account ---
+
+function getDriveClient() {
+  const email = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL;
+  const key = process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  if (!email || !key) return null;
+  const auth = new google.auth.JWT(email, undefined, key, [
+    'https://www.googleapis.com/auth/drive.file'
+  ]);
+  return google.drive({ version: 'v3', auth });
 }
 
 // --- Mapping camelCase <-> colonnes Supabase ---
@@ -218,20 +231,55 @@ async function startServer() {
     }
   });
 
-  // --- Archive (compatibilité — stocke juste l'URL dans le dossier) ---
+  // --- Archive vers Google Drive (Service Account) ---
   app.post("/api/archive-to-drive", async (req, res) => {
-    const { clientId } = req.body;
-    // Sans Google Drive, on retourne un lien vers Supabase dashboard
-    const sb = getSupabase();
-    const folderUrl = sb
-      ? `${process.env.SUPABASE_URL}/project/default/editor`
-      : null;
-    res.json({
-      success: true,
-      folderId: clientId,
-      folderUrl,
-      message: "Dossier archivé dans Supabase."
-    });
+    const { clientName, clientId, clientData } = req.body;
+    const drive = getDriveClient();
+
+    if (!drive) {
+      return res.status(400).json({
+        success: false,
+        error: "Google Drive non configuré. Ajoutez GOOGLE_SERVICE_ACCOUNT_EMAIL et GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY dans votre .env"
+      });
+    }
+
+    try {
+      const parentFolderId = process.env.GOOGLE_DRIVE_PARENT_FOLDER_ID || "1KPPA5zcvLFVPdvPFDaHkJgVfAePVLGMj";
+
+      // Créer le dossier client
+      const folder = await drive.files.create({
+        requestBody: {
+          name: `CLIENT - ${clientName}`,
+          mimeType: "application/vnd.google-apps.folder",
+          parents: [parentFolderId]
+        },
+        fields: "id, webViewLink"
+      });
+
+      const folderId = folder.data.id!;
+      const folderUrl = folder.data.webViewLink!;
+
+      // Créer le fichier résumé JSON dans le dossier
+      await drive.files.create({
+        requestBody: {
+          name: "RESUME_CLIENT.json",
+          parents: [folderId]
+        },
+        media: {
+          mimeType: "application/json",
+          body: JSON.stringify(clientData, null, 2)
+        },
+        fields: "id"
+      });
+
+      res.json({ success: true, folderId, folderUrl, message: `Dossier Drive créé pour ${clientName}` });
+    } catch (error: any) {
+      console.error("Drive Archive Error:", error.message);
+      const msg = error.message?.includes("insufficientPermissions") || error.message?.includes("403")
+        ? `Partagez le dossier Drive avec : ${process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL}`
+        : error.message;
+      res.status(500).json({ success: false, error: msg });
+    }
   });
 
   // --- Vite dev / production ---
