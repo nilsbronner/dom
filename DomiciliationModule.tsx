@@ -314,8 +314,6 @@ export default function DomiciliationModule() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
   const [lastSync, setLastSync] = useState<string | null>(getLastSync());
-  const [driveFolderId, setDriveFolderId] = useState<string | null>(null);
-  const [showConfigGuide, setShowConfigGuide] = useState(false);
 
   // 1. Render instantané depuis le cache local
   useEffect(() => {
@@ -483,8 +481,6 @@ export default function DomiciliationModule() {
               lastSync={lastSync}
               onSync={handleDriveSave}
               onPull={handleDriveLoad}
-              driveFolderId={driveFolderId}
-              onShowGuide={() => setShowConfigGuide(true)}
             />
           </motion.div>
         )}
@@ -512,18 +508,15 @@ export default function DomiciliationModule() {
             exit={{ opacity: 0, scale: 0.95 }}
             transition={{ duration: 0.3 }}
           >
-            <FicheDossier 
+            <FicheDossier
               dossier={dossiers.find(d => d.id === selectedId)!}
               onSave={handleSaveDossier}
               onDelete={() => handleDeleteDossier(selectedId)}
               onBack={() => setView('dashboard')}
-              onShowGuide={() => setShowConfigGuide(true)}
             />
           </motion.div>
         )}
       </AnimatePresence>
-
-      <ConfigGuide isOpen={showConfigGuide} onClose={() => setShowConfigGuide(false)} />
     </div>
   );
 }
@@ -641,89 +634,89 @@ function ConfigGuide({ isOpen, onClose }: { isOpen: boolean, onClose: () => void
 
 // --- Dashboard Component ---
 
-function Dashboard({ stats, dossiers, onNew, onSelect, searchTerm, setSearchTerm, isSyncing, syncError, lastSync, onSync, onPull, driveFolderId, onShowGuide }: any) {
+function Dashboard({ stats, dossiers, onNew, onSelect, searchTerm, setSearchTerm, isSyncing, syncError, lastSync, onSync, onPull }: any) {
+  const [viewClientOpen, setViewClientOpen] = useState(false);
   return (
     <div className="space-y-6">
-      {/* Cloud Sync Status */}
+      {/* Supabase Sync Status */}
       <div className="flex flex-col gap-4 bg-brand-light/20 border border-slate-800 p-4 rounded-xl">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className={`p-2 rounded-lg ${isSyncing ? 'bg-brand-primary animate-pulse' : 'bg-slate-700'}`}>
               <RefreshCw className={`w-4 h-4 ${isSyncing ? 'text-brand-dark animate-spin' : 'text-white'}`} />
             </div>
             <div>
-              <p className="text-xs font-bold text-white uppercase tracking-widest">Stockage Cloud Drive</p>
+              <p className="text-xs font-bold text-white uppercase tracking-widest">Base Supabase</p>
               <p className="text-[10px] text-slate-300">
-                {lastSync ? `Dernière synchro : ${new Date(lastSync).toLocaleString('fr-FR')}` : 'Non synchronisé'}
+                {lastSync
+                  ? `Dernière synchro : ${new Date(lastSync).toLocaleString('fr-FR')}`
+                  : 'Non synchronisé'}
+                {' · '}
+                {dossiers.length} dossier{dossiers.length > 1 ? 's' : ''} en base
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
-            <button 
-              onClick={onShowGuide}
-              className="flex items-center gap-2 px-4 py-2 bg-brand-dark border border-slate-700 rounded-lg text-xs font-bold text-slate-300 hover:text-white transition-all"
-            >
-              <Settings className="w-4 h-4" />
-              Guide Setup
-            </button>
-            {driveFolderId && (
-              <a 
-                href={`https://drive.google.com/drive/folders/${driveFolderId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-2 px-4 py-2 bg-brand-dark border border-brand-primary/30 rounded-lg text-xs font-bold text-brand-primary hover:bg-brand-primary/10 transition-all"
+          <div className="flex flex-wrap gap-2">
+            <div className="relative">
+              <button
+                onClick={() => setViewClientOpen((v) => !v)}
+                disabled={dossiers.length === 0}
+                className="flex items-center gap-2 px-4 py-2 bg-brand-dark border border-slate-700 rounded-lg text-xs font-bold text-slate-100 hover:text-brand-primary transition-all disabled:opacity-50"
               >
-                <ExternalLink className="w-4 h-4" />
-                Ouvrir le Dossier Drive
-              </a>
-            )}
-            <button 
+                <Eye className="w-4 h-4" />
+                Visionner un dossier
+                <ChevronRight className={`w-3 h-3 transition-transform ${viewClientOpen ? 'rotate-90' : ''}`} />
+              </button>
+              {viewClientOpen && dossiers.length > 0 && (
+                <div className="absolute right-0 mt-2 w-72 max-h-80 overflow-y-auto bg-brand-light border border-slate-700 rounded-xl shadow-2xl z-30">
+                  <ul className="py-2">
+                    {dossiers.map((d: DossierDomiciliation) => (
+                      <li key={d.id}>
+                        <button
+                          onClick={() => {
+                            setViewClientOpen(false);
+                            onSelect(d.id);
+                          }}
+                          className="w-full px-4 py-2 text-left hover:bg-brand-dark transition-colors flex items-center justify-between gap-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-white truncate">{d.raisonSociale}</p>
+                            <p className="text-[10px] text-slate-400 truncate">
+                              {d.formeJuridique || '—'} · {d.nomGerant || 'Sans gérant'}
+                            </p>
+                          </div>
+                          <ChevronRight className="w-3 h-3 text-slate-500 flex-shrink-0" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+            <button
               onClick={onPull}
               disabled={isSyncing}
               className="flex items-center gap-2 px-4 py-2 bg-brand-light border border-slate-700 rounded-lg text-xs font-bold text-slate-100 hover:text-brand-primary transition-all disabled:opacity-50"
             >
-              Récupérer de Drive
+              <Download className="w-4 h-4" />
+              Recharger depuis Supabase
             </button>
-            <button 
+            <button
               onClick={onSync}
               disabled={isSyncing}
               className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-brand-dark rounded-lg text-xs font-bold hover:scale-105 transition-all disabled:opacity-50"
             >
-              {isSyncing ? 'Synchronisation...' : 'Sauvegarder sur Drive'}
+              {isSyncing ? 'Synchronisation…' : 'Sauvegarder vers Supabase'}
             </button>
           </div>
         </div>
-        
+
         {syncError && (
           <div className="flex items-start gap-3 p-3 bg-rose-500/10 border border-rose-500/20 rounded-lg">
             <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0 mt-0.5" />
             <div className="text-xs text-rose-200 flex-1">
-              <p className="font-bold mb-1">Erreur de synchronisation :</p>
+              <p className="font-bold mb-1">Erreur de synchronisation Supabase :</p>
               <p>{syncError}</p>
-              {syncError.includes("L'API Google Drive n'est pas activée") && (
-                <div className="mt-3 space-y-2">
-                  <p className="text-rose-300 italic">
-                    Note : Vous devez être administrateur du projet Google Cloud pour activer l'API.
-                  </p>
-                  <div className="flex gap-3">
-                    <a 
-                      href="https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=646465255321"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 px-3 py-1.5 bg-rose-500 text-white rounded-md font-bold hover:bg-rose-600 transition-all"
-                    >
-                      <ExternalLink className="w-3 h-3" />
-                      Activer l'API Google Drive
-                    </a>
-                    <button 
-                      onClick={onShowGuide}
-                      className="text-brand-primary hover:underline font-bold text-[10px]"
-                    >
-                      Voir le guide complet
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         )}
