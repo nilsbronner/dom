@@ -72,3 +72,60 @@ export async function deleteFile(path: string): Promise<void> {
   const data = await res.json();
   if (!data.success) throw new Error(data.error || "Erreur suppression");
 }
+
+// --- Auto-sync de la checklist docs en fonction des fichiers présents ---
+// Matching simple par nom + catégorie. On ne décoche jamais (additif uniquement).
+
+export type DocsChecklist = {
+  cniGerant: boolean;
+  justifDomicileGerant: boolean;
+  statuts: boolean;
+  kbis: boolean;
+  attestationCompta: boolean;
+  listeBeneficiaires: boolean;
+  cniBeneficiaires: boolean;
+  contratSigne: boolean;
+};
+
+export function syncDocsChecklist(files: DossierFile[], current: DocsChecklist): DocsChecklist {
+  const next: DocsChecklist = { ...current };
+  for (const f of files) {
+    const n = f.name.toLowerCase();
+    if (f.category === "kyc") {
+      if (/(cni|identit)/.test(n) && /gerant|g[ée]rant/.test(n)) next.cniGerant = true;
+      else if (/(cni|identit)/.test(n) && /(benefic|b[ée]n[ée]fic|\bbe\b|uo)/.test(n)) next.cniBeneficiaires = true;
+      else if (/(domicile|edf|quittance|facture|justif)/.test(n)) next.justifDomicileGerant = true;
+      else if (/(cni|identit)/.test(n)) next.cniGerant = true; // fallback CNI seul → gérant
+    } else if (f.category === "statuts") {
+      if (/kbis/.test(n)) next.kbis = true;
+      else if (/statut/.test(n)) next.statuts = true;
+      else if (/(benefic|b[ée]n[ée]fic|liste.?be)/.test(n)) next.listeBeneficiaires = true;
+    } else if (f.category === "contrat") {
+      if (/(contrat|domiciliation.?sign)/.test(n)) next.contratSigne = true;
+    } else if (f.category === "comptable") {
+      if (/(compta|attestation)/.test(n)) next.attestationCompta = true;
+    }
+  }
+  return next;
+}
+
+export const REQUIRED_DOCS: Array<{ key: keyof DocsChecklist; label: string; category: Category }> = [
+  { key: "cniGerant",             label: "CNI gérant",            category: "kyc" },
+  { key: "justifDomicileGerant",  label: "Justif. domicile",      category: "kyc" },
+  { key: "cniBeneficiaires",      label: "CNI bénéficiaires",     category: "kyc" },
+  { key: "kbis",                  label: "Kbis (-3 mois)",        category: "statuts" },
+  { key: "statuts",               label: "Statuts",               category: "statuts" },
+  { key: "listeBeneficiaires",    label: "Liste BE",              category: "statuts" },
+  { key: "contratSigne",          label: "Contrat signé",         category: "contrat" },
+  { key: "attestationCompta",     label: "Attestation compta",    category: "comptable" },
+];
+
+export function docsCompleteness(docs: DocsChecklist): { provided: number; total: number; missing: string[] } {
+  const missing: string[] = [];
+  let provided = 0;
+  for (const d of REQUIRED_DOCS) {
+    if (docs[d.key]) provided++;
+    else missing.push(d.label);
+  }
+  return { provided, total: REQUIRED_DOCS.length, missing };
+}

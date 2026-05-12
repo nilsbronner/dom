@@ -22,6 +22,8 @@ import {
 } from './types';
 import { GoogleGenAI } from "@google/genai";
 import { loadAll, loadCached, saveDossier, deleteDossier as deleteDossierApi, saveBulk, getLastSync } from './services/dossierService';
+import { syncDocsChecklist, docsCompleteness, type DocsChecklist, type DossierFile } from './services/storageService';
+import ClientDocumentExplorer from './components/ClientDocumentExplorer';
 
 // --- Helpers ---
 
@@ -985,7 +987,7 @@ function FormNouveau({ onSave, onCancel }: any) {
 // --- Fiche Dossier Component ---
 
 function FicheDossier({ dossier, onSave, onDelete, onBack, onShowGuide }: any) {
-  const [tab, setTab] = useState<'info' | 'tracfin' | 'suivi' | 'relances' | 'paiements' | 'courrier' | 'export' | 'historique'>('info');
+  const [tab, setTab] = useState<'info' | 'tracfin' | 'documents' | 'suivi' | 'relances' | 'paiements' | 'courrier' | 'export' | 'historique'>('info');
   const [editDossier, setEditDossier] = useState<DossierDomiciliation>(dossier);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -1054,6 +1056,23 @@ function FicheDossier({ dossier, onSave, onDelete, onBack, onShowGuide }: any) {
           </div>
           <div className="flex flex-col items-end gap-2">
             <RisqueBadge niveau={evaluerRisque(editDossier).niveau} />
+            {(() => {
+              const c = docsCompleteness(editDossier.docs as DocsChecklist);
+              const pct = (c.provided / c.total) * 100;
+              const color = c.provided === c.total ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+                : c.provided >= c.total * 0.5 ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
+                : 'text-rose-400 border-rose-500/30 bg-rose-500/10';
+              return (
+                <button
+                  onClick={() => setTab('documents')}
+                  className={`text-[10px] font-bold uppercase tracking-widest border rounded-full px-3 py-1 flex items-center gap-2 ${color} hover:opacity-80 transition`}
+                  title={c.missing.length > 0 ? `Manquants : ${c.missing.join(', ')}` : 'Dossier complet'}
+                >
+                  <FolderOpen className="w-3 h-3" />
+                  {c.provided}/{c.total} docs
+                </button>
+              );
+            })()}
             <p className="text-[10px] font-bold text-slate-200 uppercase tracking-widest">Créé le {fmtDate(editDossier.createdAt)}</p>
           </div>
         </div>
@@ -1063,6 +1082,7 @@ function FicheDossier({ dossier, onSave, onDelete, onBack, onShowGuide }: any) {
           {[
             { id: 'info', label: 'Infos', icon: Info },
             { id: 'tracfin', label: 'TRACFIN', icon: Shield },
+            { id: 'documents', label: 'Documents', icon: FolderOpen },
             { id: 'suivi', label: 'Suivi', icon: RefreshCw },
             { id: 'relances', label: 'Relances', icon: Bell },
             { id: 'paiements', label: 'Finance', icon: CreditCard },
@@ -1193,6 +1213,39 @@ function FicheDossier({ dossier, onSave, onDelete, onBack, onShowGuide }: any) {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+
+          {tab === 'documents' && (
+            <div className="animate-in fade-in duration-300">
+              <div className="flex justify-between items-center mb-4">
+                <h4 className="text-xs font-black text-slate-200 uppercase tracking-[0.2em]">Documents du dossier</h4>
+                {(() => {
+                  const c = docsCompleteness(editDossier.docs as DocsChecklist);
+                  return (
+                    <span className="text-[10px] text-slate-400">
+                      {c.provided}/{c.total} obligatoires
+                      {c.missing.length > 0 && ` · Manquant : ${c.missing.slice(0, 3).join(', ')}${c.missing.length > 3 ? '…' : ''}`}
+                    </span>
+                  );
+                })()}
+              </div>
+              <ClientDocumentExplorer
+                dossierId={editDossier.id}
+                raisonSociale={editDossier.raisonSociale}
+                onFilesChange={(files: DossierFile[]) => {
+                  const nextDocs = syncDocsChecklist(files, editDossier.docs as DocsChecklist);
+                  // Update only if something changed (additive)
+                  const changed = (Object.keys(nextDocs) as (keyof DocsChecklist)[]).some(
+                    (k) => nextDocs[k] !== (editDossier.docs as DocsChecklist)[k]
+                  );
+                  if (changed) {
+                    const updated = { ...editDossier, docs: { ...(editDossier.docs as DocsChecklist), ...nextDocs } };
+                    setEditDossier(updated);
+                    onSave(updated);
+                  }
+                }}
+              />
             </div>
           )}
 
