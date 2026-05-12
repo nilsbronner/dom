@@ -17,7 +17,7 @@ import SieGreffe from './components/SieGreffe';
 import DocumentManager from './components/DocumentManager';
 import DomiciliationModule from './DomiciliationModule';
 import ClientOnboardingForm from './src/components/ClientOnboardingForm';
-import { LayoutDashboard, ShieldCheck, Mail, FileText, RefreshCw, Building2, FolderOpen, Home, ExternalLink } from 'lucide-react';
+import { LayoutDashboard, ShieldCheck, Mail, FileText, RefreshCw, Building2, FolderOpen, Home } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 enum Tab {
@@ -204,22 +204,6 @@ const App: React.FC = () => {
             <span className="text-sm">Export SIE / Greffe</span>
           </button>
 
-          <div className="mt-auto pt-6 border-t border-slate-800">
-            <a 
-              href="https://drive.google.com/drive/folders/1TaF0ab6eKdM5XkG5OtDLMh1YVZt7EJL3"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="w-full flex items-center gap-3 px-4 py-4 rounded-xl bg-brand-primary/5 text-brand-primary border border-brand-primary/20 hover:bg-brand-primary/10 transition-all group shadow-lg shadow-brand-primary/5"
-            >
-              <div className="bg-brand-primary p-2 rounded-lg">
-                <ExternalLink className="w-4 h-4 text-brand-dark" />
-              </div>
-              <div className="flex flex-col">
-                <span className="text-sm font-bold">Stockage Cloud</span>
-                <span className="text-[10px] text-slate-400 font-medium">Ouvrir Google Drive</span>
-              </div>
-            </a>
-          </div>
         </nav>
       </aside>
 
