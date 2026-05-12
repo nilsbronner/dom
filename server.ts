@@ -28,7 +28,7 @@ async function startServer() {
   });
 
   // --- Charger tous les dossiers ---
-  app.get("/api/drive/load", async (_req, res) => {
+  app.get("/api/dossiers/list", async (_req, res) => {
     const sb = getSupabase();
     if (!sb) return res.json({ success: true, dossiers: [], message: "Supabase non configuré." });
     try {
@@ -41,7 +41,7 @@ async function startServer() {
   });
 
   // --- Sauvegarder tous les dossiers (upsert) ---
-  app.post("/api/drive/save", async (req, res) => {
+  app.post("/api/dossiers/sync", async (req, res) => {
     const sb = getSupabase();
     if (!sb) return res.status(400).json({ success: false, error: "Supabase non configuré." });
     const { dossiers } = req.body as { dossiers: any[] };

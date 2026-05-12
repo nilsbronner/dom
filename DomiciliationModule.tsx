@@ -10,7 +10,7 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Plus, Shield, ChevronLeft, Search, Users, CreditCard, Mail,
-  Clock, Settings, FileText, AlertTriangle, CheckCircle, XCircle,
+  Clock, FileText, AlertTriangle, CheckCircle, XCircle,
   Bell, BarChart3, RefreshCw, ExternalLink, Eye, EyeOff, Info,
   Building2, Trash2, ChevronRight, Sparkles, X, Filter, Download, FolderOpen
 } from 'lucide-react';
@@ -340,7 +340,7 @@ export default function DomiciliationModule() {
   }, []);
 
   // Bulk resync (bouton manuel — utile en cas de désynchro multi-device)
-  const handleDriveSave = async () => {
+  const handleSyncBulk = async () => {
     setIsSyncing(true);
     setSyncError(null);
     try {
@@ -355,7 +355,7 @@ export default function DomiciliationModule() {
     }
   };
 
-  const handleDriveLoad = async () => {
+  const handleReloadFromSupabase = async () => {
     setIsSyncing(true);
     setSyncError(null);
     try {
@@ -479,8 +479,8 @@ export default function DomiciliationModule() {
               isSyncing={isSyncing}
               syncError={syncError}
               lastSync={lastSync}
-              onSync={handleDriveSave}
-              onPull={handleDriveLoad}
+              onSync={handleSyncBulk}
+              onPull={handleReloadFromSupabase}
             />
           </motion.div>
         )}
@@ -522,115 +522,6 @@ export default function DomiciliationModule() {
 }
 
 // --- Config Guide Component ---
-
-function ConfigGuide({ isOpen, onClose }: { isOpen: boolean, onClose: () => void }) {
-  if (!isOpen) return null;
-
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-brand-dark/90 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="bg-brand-light border border-slate-700 rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl animate-in zoom-in-95 duration-300">
-        <div className="p-6 border-b border-slate-800 flex items-center justify-between sticky top-0 bg-brand-light z-10">
-          <div className="flex items-center gap-3">
-            <Settings className="w-6 h-6 text-brand-primary" />
-            <h2 className="text-xl font-black text-white">Guide de Configuration Google Drive</h2>
-          </div>
-          <button onClick={onClose} className="p-2 hover:bg-slate-800 rounded-lg transition-colors">
-            <X className="w-6 h-6 text-slate-400" />
-          </button>
-        </div>
-        
-        <div className="p-8 space-y-8">
-          <section className="space-y-4">
-            <h3 className="text-brand-primary font-bold flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-brand-primary text-brand-dark flex items-center justify-center text-xs">1</span>
-              Activer l'API Google Drive
-            </h3>
-            <p className="text-sm text-slate-200 leading-relaxed">
-              L'erreur "Google Drive API has not been used" signifie que l'API est désactivée dans votre projet Google Cloud.
-            </p>
-            <div className="p-4 bg-brand-dark rounded-xl border border-slate-800 space-y-3">
-              <p className="text-xs text-slate-300 font-bold text-rose-400">
-                ATTENTION : Une simple "Clé API" (commençant par AIza...) ne suffit pas pour sauvegarder des fichiers. Vous DEVEZ créer un "Identifiant client OAuth 2.0".
-              </p>
-              <p className="text-xs text-slate-300">Cliquez sur le bouton ci-dessous pour activer l'API sur le bon projet :</p>
-              <div className="flex flex-wrap gap-3">
-                <a 
-                  href="https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=646465255321" 
-                  target="_blank" 
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-brand-primary text-brand-dark rounded-lg font-black text-xs hover:scale-105 transition-all"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Activer l'API Drive (Projet 646465255321)
-                </a>
-                <button 
-                  onClick={() => {
-                    navigator.clipboard.writeText("https://console.developers.google.com/apis/api/drive.googleapis.com/overview?project=646465255321");
-                    alert("Lien copié !");
-                  }}
-                  className="px-4 py-2 bg-slate-800 text-slate-300 rounded-lg font-bold text-xs hover:text-white transition-all"
-                >
-                  Copier le lien
-                </button>
-              </div>
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            <h3 className="text-brand-primary font-bold flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-brand-primary text-brand-dark flex items-center justify-center text-xs">2</span>
-              Configurer les Variables d'Environnement
-            </h3>
-            <p className="text-sm text-slate-200">
-              Assurez-vous que les variables suivantes sont configurées dans les paramètres de votre application (Settings &gt; Environment Variables) :
-            </p>
-            <div className="grid grid-cols-1 gap-2">
-              {[
-                'GOOGLE_CLIENT_ID',
-                'GOOGLE_CLIENT_SECRET',
-                'GOOGLE_REFRESH_TOKEN',
-                'GOOGLE_DRIVE_PARENT_FOLDER_ID'
-              ].map(v => (
-                <div key={v} className="flex items-center justify-between p-3 bg-brand-dark rounded-lg border border-slate-800">
-                  <code className="text-xs text-emerald-400">{v}</code>
-                  <span className="text-[10px] text-slate-500 uppercase font-bold">Requis</span>
-                </div>
-              ))}
-            </div>
-          </section>
-
-          <section className="space-y-4">
-            <h3 className="text-brand-primary font-bold flex items-center gap-2">
-              <span className="w-6 h-6 rounded-full bg-brand-primary text-brand-dark flex items-center justify-center text-xs">3</span>
-              Générer un Refresh Token
-            </h3>
-            <p className="text-sm text-slate-200">
-              Utilisez le <strong>OAuth 2.0 Playground</strong> de Google pour obtenir un Refresh Token valide avec le scope <code>https://www.googleapis.com/auth/drive.file</code>.
-            </p>
-            <a 
-              href="https://developers.google.com/oauthplayground" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-brand-primary hover:underline font-bold text-sm"
-            >
-              Google OAuth Playground
-              <ExternalLink className="w-4 h-4" />
-            </a>
-          </section>
-
-          <div className="pt-6 border-t border-slate-800">
-            <button 
-              onClick={onClose}
-              className="w-full bg-brand-primary text-brand-dark font-black py-4 rounded-xl hover:scale-[1.02] transition-transform"
-            >
-              J'ai compris, fermer le guide
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // --- Dashboard Component ---
 
@@ -979,7 +870,7 @@ function FormNouveau({ onSave, onCancel }: any) {
 
 // --- Fiche Dossier Component ---
 
-function FicheDossier({ dossier, onSave, onDelete, onBack, onShowGuide }: any) {
+function FicheDossier({ dossier, onSave, onDelete, onBack }: any) {
   const [tab, setTab] = useState<'info' | 'tracfin' | 'documents' | 'suivi' | 'relances' | 'paiements' | 'courrier' | 'export' | 'historique'>('info');
   const [editDossier, setEditDossier] = useState<DossierDomiciliation>(dossier);
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);

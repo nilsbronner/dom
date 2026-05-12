@@ -31,7 +31,7 @@ export function loadCached(): DossierDomiciliation[] {
 }
 
 export async function loadAll(): Promise<{ dossiers: DossierDomiciliation[]; lastSync?: string }> {
-  const res = await fetch("/api/drive/load");
+  const res = await fetch("/api/dossiers/list");
   const data = await res.json();
   if (!data.success) throw new Error(data.error || "Erreur chargement Supabase");
   const dossiers: DossierDomiciliation[] = data.dossiers ?? [];
@@ -65,7 +65,7 @@ export async function deleteDossier(id: string): Promise<void> {
 }
 
 export async function saveBulk(dossiers: DossierDomiciliation[]): Promise<void> {
-  const res = await fetch("/api/drive/save", {
+  const res = await fetch("/api/dossiers/sync", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ dossiers }),

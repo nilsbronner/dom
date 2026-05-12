@@ -6,7 +6,6 @@ export default function handler(_req: VercelRequest, res: VercelResponse) {
   res.json({
     status: "ok",
     supabase: sb ? "configured" : "not configured",
-    hasDriveEmail: !!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-    hasDriveKey: !!process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY,
+    storage: "supabase-storage",
   });
 }

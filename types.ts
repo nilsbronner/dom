@@ -299,11 +299,7 @@ export interface DossierDomiciliation {
   
   // --- SIE / GREFFE ---
   aInclureProchaineListe: boolean;
-  
-  // --- ARCHIVAGE CLOUD ---
-  driveFolderUrl?: string;
-  driveFolderId?: string;
-  
+
   // --- Logs ---
   paiements: PaiementDom[];
   historique: HistoriqueEntry[];
