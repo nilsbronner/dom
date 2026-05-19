@@ -71,11 +71,15 @@ async function startServer() {
   });
 
   // --- Supprimer un dossier ---
-  app.delete("/api/dossier/:id", async (req, res) => {
+  app.post("/api/dossiers/delete", async (req, res) => {
     const sb = getSupabase();
     if (!sb) return res.status(400).json({ success: false, error: "Supabase non configuré." });
+    const id = req.body?.id;
+    if (typeof id !== "string" || !id) {
+      return res.status(400).json({ success: false, error: "ID requis dans le body" });
+    }
     try {
-      const { error } = await sb.from("dossiers").delete().eq("id", req.params.id);
+      const { error } = await sb.from("dossiers").delete().eq("id", id);
       if (error) throw error;
       res.json({ success: true });
     } catch (err: any) {

@@ -74,7 +74,11 @@ export async function saveDossier(dossier: DossierDomiciliation): Promise<void> 
 }
 
 export async function deleteDossier(id: string): Promise<void> {
-  const res = await fetch(`/api/dossier/${encodeURIComponent(id)}`, { method: "DELETE" });
+  const res = await fetch("/api/dossiers/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ id }),
+  });
   const data = await parseJsonResponse(res);
   if (!data.success) throw new Error(data.error || "Erreur suppression Supabase");
 
