@@ -5,10 +5,9 @@ import React, { useState, useEffect } from 'react';
 import {
   X, RefreshCw, Loader2, AlertTriangle, ExternalLink, Users, ChevronRight, CheckCircle
 } from 'lucide-react';
-import { fetchSheetData, parseCSV, GOOGLE_SHEET_URL } from '../services/googleSheetsService';
-import { analyzeNewClient } from '../services/geminiService';
+import { fetchSheetData, parseCSV } from '../services/googleSheetsService';
 import {
-  newClientResultToDossier,
+  tallyRowToDossier,
   guessRaisonSociale,
   guessEmail,
 } from '../services/clientImportService';
@@ -52,9 +51,8 @@ const TallyImportModal: React.FC<Props> = ({ isOpen, onClose, onImported }) => {
     setImportingIdx(idx);
     setError(null);
     try {
-      // Pass the row as JSON to Gemini
-      const result = await analyzeNewClient(JSON.stringify(row));
-      const dossier = newClientResultToDossier(result, 'tally');
+      // Mapping direct CSV Tally → DossierDomiciliation (pas besoin de Gemini, colonnes nommées)
+      const dossier = tallyRowToDossier(row);
       await onImported(dossier);
       onClose();
     } catch (err: any) {
@@ -142,16 +140,20 @@ const TallyImportModal: React.FC<Props> = ({ isOpen, onClose, onImported }) => {
               {rows.map((row, idx) => {
                 const raisonSociale = guessRaisonSociale(row);
                 const email = guessEmail(row);
+                const formeJuridique = Object.keys(row).find((k) => /forme\s*juridique/i.test(k));
+                const formeVal = formeJuridique ? row[formeJuridique] : '';
+                const submitted = row['Submitted at'] || '';
                 const isImporting = importingIdx === idx;
                 const isDisabled = importingIdx !== null && !isImporting;
                 return (
                   <li key={idx} className="bg-brand-dark border border-slate-700 rounded-lg p-3 flex items-center justify-between gap-3">
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-bold text-white truncate">{raisonSociale}</p>
-                      {email && <p className="text-xs text-slate-400 truncate">{email}</p>}
-                      <p className="text-[10px] text-slate-500 mt-0.5">
-                        {Object.keys(row).length} champ{Object.keys(row).length > 1 ? 's' : ''} dans la réponse
+                      <p className="text-xs text-slate-400 truncate">
+                        {formeVal && <span className="text-brand-primary mr-1">{formeVal}</span>}
+                        {email}
                       </p>
+                      {submitted && <p className="text-[10px] text-slate-500 mt-0.5">{submitted}</p>}
                     </div>
                     <button
                       onClick={() => handleImportRow(row, idx)}
@@ -179,9 +181,9 @@ const TallyImportModal: React.FC<Props> = ({ isOpen, onClose, onImported }) => {
 
         {/* Footer */}
         <div className="p-3 border-t border-slate-800 flex justify-between items-center text-[10px] text-slate-500">
-          <span>Sheet : ...M9CE — Tally → Sheet → Gemini → Supabase</span>
+          <span>Sheet : ...M9CE — Tally → Sheet → Supabase</span>
           <span className="flex items-center gap-1">
-            <CheckCircle className="w-3 h-3" /> Auto-parsing par Gemini
+            <CheckCircle className="w-3 h-3" /> Mapping direct (sans IA)
           </span>
         </div>
       </div>
