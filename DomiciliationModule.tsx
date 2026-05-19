@@ -22,8 +22,9 @@ import {
 } from './types';
 import { GoogleGenAI } from "@google/genai";
 import { loadAll, loadCached, saveDossier, deleteDossier as deleteDossierApi, saveBulk, getLastSync } from './services/dossierService';
-import { syncDocsChecklist, docsCompleteness, type DocsChecklist, type DossierFile } from './services/storageService';
+import { syncDocsChecklist, docsCompleteness, uploadFile, type DocsChecklist, type DossierFile, type Category } from './services/storageService';
 import ClientDocumentExplorer from './components/ClientDocumentExplorer';
+import ImportClientModal from './components/ImportClientModal';
 
 // --- Helpers ---
 
@@ -443,6 +444,53 @@ export default function DomiciliationModule() {
     (window as any).simulateTally = handleSimulateTally;
   }, [dossiers]);
 
+  const [importOpen, setImportOpen] = useState(false);
+
+  const handleImportFromFolder = useCallback(async (
+    raisonSociale: string,
+    files: { file: File; category: Category }[]
+  ) => {
+    // 1. Création du dossier vide + raison sociale
+    const nouveau: DossierDomiciliation = {
+      ...dossierVide(),
+      raisonSociale,
+      historique: [{
+        id: uid(),
+        date: new Date().toISOString(),
+        type: 'autre' as TypeEchange,
+        description: `Import depuis dossier disque (${files.length} fichier${files.length > 1 ? 's' : ''}).`,
+      }],
+    };
+
+    // 2. Optimistic UI : afficher tout de suite
+    setDossiers(prev => [nouveau, ...prev]);
+    setSelectedId(nouveau.id);
+    setView('fiche');
+
+    // 3. Persist dans Supabase
+    await saveDossier(nouveau);
+
+    // 4. Upload séquentiel des fichiers vers Storage
+    const uploaded: DossierFile[] = [];
+    for (const { file, category } of files) {
+      try {
+        const f = await uploadFile(nouveau.id, category, file);
+        uploaded.push(f);
+      } catch (err: any) {
+        console.error(`Upload échoué pour ${file.name}:`, err.message);
+        // On continue avec les autres
+      }
+    }
+
+    // 5. Auto-sync de la checklist KYC + resave du dossier
+    if (uploaded.length > 0) {
+      const nextDocs = syncDocsChecklist(uploaded, nouveau.docs as DocsChecklist);
+      const enriched = { ...nouveau, docs: { ...nouveau.docs, ...nextDocs } };
+      setDossiers(prev => prev.map(d => d.id === nouveau.id ? enriched : d));
+      await saveDossier(enriched);
+    }
+  }, []);
+
   const handleDeleteDossier = async (id: string) => {
     if (!window.confirm('Supprimer ce dossier ?')) return;
     // Optimistic UI update
@@ -473,6 +521,7 @@ export default function DomiciliationModule() {
               stats={stats}
               dossiers={filteredDossiers}
               onNew={() => setView('nouveau')}
+              onImport={() => setImportOpen(true)}
               onSelect={(id) => { setSelectedId(id); setView('fiche'); }}
               searchTerm={searchTerm}
               setSearchTerm={setSearchTerm}
@@ -517,6 +566,12 @@ export default function DomiciliationModule() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ImportClientModal
+        isOpen={importOpen}
+        onClose={() => setImportOpen(false)}
+        onConfirm={handleImportFromFolder}
+      />
     </div>
   );
 }
@@ -525,7 +580,7 @@ export default function DomiciliationModule() {
 
 // --- Dashboard Component ---
 
-function Dashboard({ stats, dossiers, onNew, onSelect, searchTerm, setSearchTerm, isSyncing, syncError, lastSync, onSync, onPull }: any) {
+function Dashboard({ stats, dossiers, onNew, onImport, onSelect, searchTerm, setSearchTerm, isSyncing, syncError, lastSync, onSync, onPull }: any) {
   const [viewClientOpen, setViewClientOpen] = useState(false);
   return (
     <div className="space-y-6">
@@ -645,17 +700,24 @@ function Dashboard({ stats, dossiers, onNew, onSelect, searchTerm, setSearchTerm
             className="w-full bg-brand-light border border-slate-700 text-white pl-12 pr-4 py-3 rounded-xl focus:outline-none focus:ring-2 focus:ring-brand-primary/50 transition-all placeholder:text-slate-400"
           />
         </div>
-        <div className="flex gap-3 w-full md:w-auto">
-          <button 
+        <div className="flex flex-wrap gap-3 w-full md:w-auto">
+          <button
             onClick={() => (window as any).simulateTally()}
-            className="flex-1 md:flex-none bg-brand-light border border-slate-700 text-white font-bold px-6 py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-800 transition-all"
+            className="flex-1 md:flex-none bg-brand-light border border-slate-700 text-white font-bold px-5 py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-800 transition-all"
           >
             <RefreshCw className="w-5 h-5" />
             Import Tally
           </button>
-          <button 
+          <button
+            onClick={onImport}
+            className="flex-1 md:flex-none bg-brand-light border border-slate-700 text-white font-bold px-5 py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-800 transition-all"
+          >
+            <FolderOpen className="w-5 h-5" />
+            Importer dossier
+          </button>
+          <button
             onClick={onNew}
-            className="flex-1 md:flex-none bg-brand-primary text-brand-dark font-bold px-6 py-3 rounded-xl flex items-center justify-center gap-2 hover:scale-105 transition-transform shadow-lg shadow-brand-primary/20"
+            className="flex-1 md:flex-none bg-brand-primary text-brand-dark font-bold px-5 py-3 rounded-xl flex items-center justify-center gap-2 hover:scale-105 transition-transform shadow-lg shadow-brand-primary/20"
           >
             <Plus className="w-5 h-5" />
             Nouveau Dossier
