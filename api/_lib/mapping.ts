@@ -43,6 +43,7 @@ export function toRow(d: any) {
     relances:                     d.relances,
     paiements:                    d.paiements,
     historique:                   d.historique,
+    tally_answers:                d.tallyAnswers ?? null,
   };
 }
 
@@ -89,5 +90,6 @@ export function fromRow(r: any) {
     relances:                        r.relances,
     paiements:                       r.paiements,
     historique:                      r.historique,
+    tallyAnswers:                    r.tally_answers ?? undefined,
   };
 }

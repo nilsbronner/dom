@@ -106,30 +106,24 @@ export function guessEmail(row: Record<string, string>): string {
   return '';
 }
 
-// Mapping direct d'une ligne Tally vers un DossierDomiciliation.
-// Évite l'appel Gemini pour un parsing trivial (les colonnes Tally sont déjà nommées explicitement).
+// Mapping direct 1:1 d'une ligne Tally vers un DossierDomiciliation.
+// Principe : une cellule Tally = une cellule de dossier. Pas de concaténation.
+// Les colonnes Tally qui n'ont pas de champ typé dans le dossier sont préservées
+// telles quelles dans `tallyAnswers` (JSONB) pour traçabilité totale.
 export function tallyRowToDossier(row: Record<string, string>): DossierDomiciliation {
   const now = new Date().toISOString();
   const get = (regex: RegExp): string => {
     const key = Object.keys(row).find((k) => regex.test(k));
     return key ? (row[key] || '').trim() : '';
   };
-  const getBool = (regex: RegExp): boolean => {
-    const v = get(regex).toLowerCase();
-    return /^(oui|yes|true|1)$/i.test(v);
-  };
 
-  const prenom = get(/^pr[eé]nom$/i);
-  const nom = get(/^nom$/i);
+  // Adresse : concaténation des 4 colonnes Tally (Numéro, Voie, CP, Ville)
+  // — exception assumée, c'est une adresse postale standard.
   const numero = get(/^num[eé]ro$/i);
   const voie = get(/^voie$/i);
   const cp = get(/code\s*postal/i);
   const ville = get(/^ville$/i);
   const adresseDomicile = [numero, voie, cp, ville].filter(Boolean).join(' ');
-
-  const raisonSociale = get(/nom\s*de\s*soci[eé]t[eé]/i);
-  const formeJuridique = get(/forme\s*juridique/i);
-  const dateInscription = get(/date\s*d.?inscription/i);
 
   const courrierReexp = get(/r[eé]exp[eé]dition.*courrier/i);
   const courrierScan = get(/scan.*courrier/i);
@@ -137,75 +131,57 @@ export function tallyRowToDossier(row: Record<string, string>): DossierDomicilia
   if (/oui/i.test(courrierReexp)) optionCourrier = 'renvoi';
   else if (/oui/i.test(courrierScan)) optionCourrier = 'scan';
 
-  const activite = get(/activit[eé]\s*principale/i);
-  const description = [
-    get(/produits\s*ou\s*services/i),
-    get(/march[eé]s\s*cibles/i),
-    get(/structure.*entreprise.*organisation/i),
-  ].filter(Boolean).join(' | ');
-
-  const origineFonds = get(/origine\s*des\s*fonds/i);
-  const investisseurs = get(/investisseurs.*partenaires/i);
-  const beneficiaires = get(/b[eé]n[eé]ficiaires\s*effectifs(?!\s*d)/i)
-    || get(/qui\s*sont\s*les\s*b[eé]n[eé]ficiaires/i);
-  const beneficiairesDetails = get(/informations.*b[eé]n[eé]ficiaires/i);
-  const beneficiairesDeclares = [beneficiaires, beneficiairesDetails, investisseurs]
-    .filter(Boolean).join(' — ');
-
-  const utilisationAdresse = get(/quelles?\s*fins.*adresse/i) || 'Siège social';
-
   return {
     id: uid(),
     createdAt: now,
     statut: 'en_cours',
-    raisonSociale,
-    formeJuridique: formeJuridique || 'SAS',
-    siret: '',
-    rcsVille: ville || '',
-    activite,
-    descriptionActivite: description,
-    nomGerant: nom.toUpperCase(),
-    prenomGerant: prenom,
-    nationaliteGerant: '',
-    paysOrigine: 'France',
-    tel: get(/num[eé]ro\s*de\s*t[eé]l[eé]phone/i),
-    email: get(/^email$/i),
+
+    // --- Identité entreprise (1 cellule Tally = 1 champ) ---
+    raisonSociale:        get(/nom\s*de\s*soci[eé]t[eé]/i),
+    formeJuridique:       get(/forme\s*juridique/i) || 'SAS',
+    siret:                '',
+    rcsVille:             ville,
+    activite:             get(/activit[eé]\s*principale/i),
+    descriptionActivite:  get(/produits\s*ou\s*services/i),
+
+    // --- Gérance ---
+    nomGerant:            get(/^nom$/i).toUpperCase(),
+    prenomGerant:         get(/^pr[eé]nom$/i),
+    nationaliteGerant:    '',
+    paysOrigine:          'France',
+    tel:                  get(/num[eé]ro\s*de\s*t[eé]l[eé]phone/i),
+    email:                get(/^email$/i),
     adresseDomicile,
-    dateDebut: dateInscription || now.split('T')[0],
-    origineFonds,
-    beneficiairesDeclares,
-    utilisationAdresse,
-    estPPE: false,
+
+    // --- Domiciliation ---
+    dateDebut:            get(/date\s*d.?inscription/i) || now.split('T')[0],
+    origineFonds:         get(/origine\s*des\s*fonds/i),
+    beneficiairesDeclares: get(/qui\s*sont\s*les\s*b[eé]n[eé]ficiaires/i),
+    utilisationAdresse:   get(/quelles?\s*fins.*adresse/i) || 'Siège social',
+    estPPE:               false,
     appartenancePolitiqueReligieuse: false,
-    commentairesControlesInitiaux: [
-      get(/nature.*fr[eé]quence.*transactions/i) && `Transactions : ${get(/nature.*fr[eé]quence.*transactions/i)}`,
-      get(/montants\s*moyens.*transactions/i) && `Montants moyens : ${get(/montants\s*moyens.*transactions/i)}`,
-      get(/documents.*l[eé]gitimit[eé].*p[eé]rennit[eé]/i) && `Docs légitimité : ${get(/documents.*l[eé]gitimit[eé].*p[eé]rennit[eé]/i)}`,
-      get(/mesures\s*internes.*conformit[eé]/i) && `LCB-FT : ${get(/mesures\s*internes.*conformit[eé]/i)}`,
-      get(/changements\s*importants/i) && `Changements prévus : ${get(/changements\s*importants/i)}`,
-      get(/op[eé]rations\s*financi[eè]res.*avenir/i) && `Opérations futures : ${get(/op[eé]rations\s*financi[eè]res.*avenir/i)}`,
-    ].filter(Boolean).join('\n'),
-    niveauRisqueIA: 'vert',
-    decisionRisqueIA: '',
-    commentaireRisqueIA: '',
-    statutMiseAJourAnnuelle: 'a_jour',
-    derniereMajAnnuelle: now,
-    dernierControleTrimestriel: now,
-    statutConformiteTrimestrielle: 'Conforme',
-    tarifChoisi: 'mensuel',
-    montantMensuel: 50,
+    commentairesControlesInitiaux: '',
+
+    // --- Risque IA (non renseigné à l'import, sera calculé après) ---
+    niveauRisqueIA:       'vert',
+    decisionRisqueIA:     '',
+    commentaireRisqueIA:  '',
+
+    // --- Suivi ---
+    statutMiseAJourAnnuelle:        'a_jour',
+    derniereMajAnnuelle:            now,
+    dernierControleTrimestriel:     now,
+    statutConformiteTrimestrielle:  'Conforme',
+    tarifChoisi:                    'mensuel',
+    montantMensuel:                 50,
     optionCourrier,
-    numeroBal: '',
+    numeroBal:                      '',
+
     docs: {
-      cniGerant: false,
-      justifDomicileGerant: false,
-      statuts: false,
-      kbis: false,
-      attestationCompta: false,
-      listeBeneficiaires: false,
-      cniBeneficiaires: false,
-      contratSigne: false,
+      cniGerant: false, justifDomicileGerant: false, statuts: false, kbis: false,
+      attestationCompta: false, listeBeneficiaires: false, cniBeneficiaires: false, contratSigne: false,
     },
+
     relances: [],
     aInclureProchaineListe: true,
     paiements: [],
@@ -215,5 +191,8 @@ export function tallyRowToDossier(row: Record<string, string>): DossierDomicilia
       type: 'autre',
       description: `Création du dossier depuis Tally (Submission ID: ${row['Submission ID'] || '?'})`,
     }],
+
+    // --- Source brute : TOUTES les colonnes Tally préservées 1:1 ---
+    tallyAnswers: { ...row },
   };
 }

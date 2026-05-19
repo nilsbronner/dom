@@ -303,4 +303,7 @@ export interface DossierDomiciliation {
   // --- Logs ---
   paiements: PaiementDom[];
   historique: HistoriqueEntry[];
+
+  // --- Source brute (réponses Tally complètes, 1 clé = 1 colonne) ---
+  tallyAnswers?: Record<string, string>;
 }
