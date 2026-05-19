@@ -1,6 +1,15 @@
 // Frontend helper for Supabase Storage operations.
 // All calls go through /api/storage/* — no direct Supabase client in the browser.
 
+async function parseJsonResponse<T = any>(res: Response): Promise<T> {
+  const text = await res.text();
+  if (!text.trim()) throw new Error(`Réponse vide du serveur (HTTP ${res.status}).`);
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("json")) throw new Error(`Réponse non-JSON (HTTP ${res.status}).`);
+  try { return JSON.parse(text) as T; }
+  catch { throw new Error(`JSON invalide (HTTP ${res.status}).`); }
+}
+
 export type Category = "kyc" | "statuts" | "contrat" | "comptable" | "suivi";
 
 export const CATEGORY_LABEL: Record<Category, string> = {
@@ -26,7 +35,7 @@ export async function uploadFile(dossierId: string, category: Category, file: Fi
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ dossierId, category, filename: file.name }),
   });
-  const signData = await signRes.json();
+  const signData = await parseJsonResponse(signRes);
   if (!signData.success) throw new Error(signData.error || "Erreur signature upload");
 
   // 2. Upload directly to Supabase Storage using the signed URL (bypasses Vercel function size limit)
@@ -51,14 +60,14 @@ export async function uploadFile(dossierId: string, category: Category, file: Fi
 
 export async function listFiles(dossierId: string): Promise<DossierFile[]> {
   const res = await fetch(`/api/storage/list?dossierId=${encodeURIComponent(dossierId)}`);
-  const data = await res.json();
+  const data = await parseJsonResponse(res);
   if (!data.success) throw new Error(data.error || "Erreur liste fichiers");
   return data.files;
 }
 
 export async function getSignedUrl(path: string, expiresIn = 3600): Promise<string> {
   const res = await fetch(`/api/storage/sign-url?path=${encodeURIComponent(path)}&expiresIn=${expiresIn}`);
-  const data = await res.json();
+  const data = await parseJsonResponse(res);
   if (!data.success) throw new Error(data.error || "Erreur URL signée");
   return data.url;
 }
@@ -69,7 +78,7 @@ export async function deleteFile(path: string): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ path }),
   });
-  const data = await res.json();
+  const data = await parseJsonResponse(res);
   if (!data.success) throw new Error(data.error || "Erreur suppression");
 }
 

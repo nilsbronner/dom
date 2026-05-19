@@ -8,6 +8,23 @@ import type { DossierDomiciliation } from "../types";
 const CACHE_KEY = "grub-dossiers-v1";
 const LAST_SYNC_KEY = "grub-last-sync";
 
+// Parse JSON safely — handles empty body, HTML error pages, deploy-time race conditions.
+async function parseJsonResponse<T = any>(res: Response): Promise<T> {
+  const text = await res.text();
+  if (!text.trim()) {
+    throw new Error(`Réponse vide du serveur (HTTP ${res.status}). Réessaie dans quelques secondes.`);
+  }
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("json")) {
+    throw new Error(`Le serveur a renvoyé du non-JSON (HTTP ${res.status}). Probablement un redéploiement en cours.`);
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`JSON invalide reçu du serveur (HTTP ${res.status}).`);
+  }
+}
+
 function readCache(): DossierDomiciliation[] {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
@@ -32,7 +49,7 @@ export function loadCached(): DossierDomiciliation[] {
 
 export async function loadAll(): Promise<{ dossiers: DossierDomiciliation[]; lastSync?: string }> {
   const res = await fetch("/api/dossiers/list");
-  const data = await res.json();
+  const data = await parseJsonResponse(res);
   if (!data.success) throw new Error(data.error || "Erreur chargement Supabase");
   const dossiers: DossierDomiciliation[] = data.dossiers ?? [];
   writeCache(dossiers);
@@ -45,7 +62,7 @@ export async function saveDossier(dossier: DossierDomiciliation): Promise<void> 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(dossier),
   });
-  const data = await res.json();
+  const data = await parseJsonResponse(res);
   if (!data.success) throw new Error(data.error || "Erreur sauvegarde Supabase");
 
   // Update cache so other components reading localStorage see fresh data
@@ -58,7 +75,7 @@ export async function saveDossier(dossier: DossierDomiciliation): Promise<void> 
 
 export async function deleteDossier(id: string): Promise<void> {
   const res = await fetch(`/api/dossier/${encodeURIComponent(id)}`, { method: "DELETE" });
-  const data = await res.json();
+  const data = await parseJsonResponse(res);
   if (!data.success) throw new Error(data.error || "Erreur suppression Supabase");
 
   writeCache(readCache().filter((d) => d.id !== id));
@@ -70,7 +87,7 @@ export async function saveBulk(dossiers: DossierDomiciliation[]): Promise<void> 
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ dossiers }),
   });
-  const data = await res.json();
+  const data = await parseJsonResponse(res);
   if (!data.success) throw new Error(data.error || "Erreur sync bulk");
   writeCache(dossiers);
 }
