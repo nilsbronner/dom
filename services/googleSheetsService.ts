@@ -1,6 +1,7 @@
 
 /**
- * Service pour récupérer les données depuis Google Sheets
+ * Service pour récupérer les données depuis Google Sheets.
+ * Parser CSV state-machine : gère correctement les champs multi-lignes entre guillemets.
  */
 
 export const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UJrNyzwE5Haov1cS5Ylxa4ghJuRHKTjqWN_rzO-M9CE/export?format=csv";
@@ -8,50 +9,94 @@ export const GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/1UJrNyzw
 export async function fetchSheetData(): Promise<string> {
   try {
     const response = await fetch(GOOGLE_SHEET_URL);
-    if (!response.ok) {
-      throw new Error(`Erreur HTTP: ${response.status}`);
-    }
-    const csvText = await response.text();
-    return csvText;
+    if (!response.ok) throw new Error(`Erreur HTTP: ${response.status}`);
+    return await response.text();
   } catch (error) {
     console.error("Erreur lors de la récupération de la Google Sheet:", error);
     throw error;
   }
 }
 
-function splitCSVLine(line: string): string[] {
-  const fields: string[] = [];
-  let current = '';
+/**
+ * Parser CSV qui gère :
+ * - champs entre guillemets contenant des virgules
+ * - champs multi-lignes (retours à la ligne à l'intérieur des guillemets)
+ * - guillemets échappés ("" à l'intérieur d'un champ quoté)
+ * - CRLF et LF
+ */
+function parseCSVRaw(csv: string): string[][] {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentField = '';
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (ch === '"') {
-      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
-      else { inQuotes = !inQuotes; }
-    } else if (ch === ',' && !inQuotes) {
-      fields.push(current.trim());
-      current = '';
+
+  for (let i = 0; i < csv.length; i++) {
+    const ch = csv[i];
+    const next = csv[i + 1];
+
+    if (inQuotes) {
+      if (ch === '"') {
+        if (next === '"') {
+          // Guillemet échappé
+          currentField += '"';
+          i++;
+        } else {
+          // Fin du champ quoté
+          inQuotes = false;
+        }
+      } else {
+        currentField += ch;
+      }
     } else {
-      current += ch;
+      if (ch === '"') {
+        inQuotes = true;
+      } else if (ch === ',') {
+        currentRow.push(currentField);
+        currentField = '';
+      } else if (ch === '\r' && next === '\n') {
+        // CRLF
+        currentRow.push(currentField);
+        rows.push(currentRow);
+        currentField = '';
+        currentRow = [];
+        i++;
+      } else if (ch === '\n' || ch === '\r') {
+        // LF ou CR seul
+        currentRow.push(currentField);
+        rows.push(currentRow);
+        currentField = '';
+        currentRow = [];
+      } else {
+        currentField += ch;
+      }
     }
   }
-  fields.push(current.trim());
-  return fields;
+
+  // Push the last field/row if non-empty
+  if (currentField !== '' || currentRow.length > 0) {
+    currentRow.push(currentField);
+    rows.push(currentRow);
+  }
+
+  return rows;
 }
 
-export function parseCSV(csv: string): any[] {
-  const lines = csv.split('\n');
-  if (lines.length === 0) return [];
+export function parseCSV(csv: string): Record<string, string>[] {
+  const rows = parseCSVRaw(csv);
+  if (rows.length === 0) return [];
 
-  const headers = splitCSVLine(lines[0]);
-  const result = [];
+  const headers = rows[0].map((h) => h.trim());
+  const result: Record<string, string>[] = [];
 
-  for (let i = 1; i < lines.length; i++) {
-    if (!lines[i].trim()) continue;
-    const values = splitCSVLine(lines[i]);
-    const obj: any = {};
-    headers.forEach((header, index) => {
-      obj[header] = values[index] ?? '';
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    // Skip rows that are entirely empty (last empty line of CSV)
+    if (row.length === 1 && row[0].trim() === '') continue;
+    if (row.every((c) => c.trim() === '')) continue;
+
+    const obj: Record<string, string> = {};
+    headers.forEach((header, idx) => {
+      obj[header] = (row[idx] ?? '').trim();
     });
     result.push(obj);
   }
