@@ -25,6 +25,7 @@ import { loadAll, loadCached, saveDossier, deleteDossier as deleteDossierApi, sa
 import { syncDocsChecklist, docsCompleteness, uploadFile, type DocsChecklist, type DossierFile, type Category } from './services/storageService';
 import ClientDocumentExplorer from './components/ClientDocumentExplorer';
 import ImportClientModal from './components/ImportClientModal';
+import TallyImportModal from './components/TallyImportModal';
 
 // --- Helpers ---
 
@@ -407,44 +408,15 @@ export default function DomiciliationModule() {
     }
   };
 
-  const handleSimulateTally = () => {
-    const mockTally = {
-      raisonSociale: "TECH INNOVATIONS SARL",
-      formeJuridique: "SARL",
-      nomGerant: "DUPONT",
-      prenomGerant: "Jean",
-      activite: "Conseil en Informatique",
-      descriptionActivite: "Développement de logiciels et conseil en cybersécurité.",
-      origineFonds: "Apports personnels et prêt bancaire",
-      beneficiairesDeclares: "Jean Dupont (100%)",
-      paysOrigine: "France",
-      email: "jean.dupont@techinnov.fr",
-      tel: "0601020304",
-      adresseDomicile: "123 Rue de la Paix, 75002 Paris"
-    };
+  const [importOpen, setImportOpen] = useState(false);
+  const [tallyOpen, setTallyOpen] = useState(false);
 
-    const nouveau = {
-      ...dossierVide(),
-      ...mockTally,
-      historique: [{
-        id: uid(),
-        date: new Date().toISOString(),
-        type: 'autre' as TypeEchange,
-        description: "Dossier importé automatiquement depuis Tally."
-      }]
-    };
-
+  const handleTallyImported = useCallback(async (nouveau: DossierDomiciliation) => {
     setDossiers(prev => [nouveau, ...prev]);
     setSelectedId(nouveau.id);
     setView('fiche');
-    saveDossier(nouveau).catch(err => console.error("Tally save error:", err));
-  };
-
-  useEffect(() => {
-    (window as any).simulateTally = handleSimulateTally;
-  }, [dossiers]);
-
-  const [importOpen, setImportOpen] = useState(false);
+    await saveDossier(nouveau);
+  }, []);
 
   const handleImportFromFolder = useCallback(async (
     raisonSociale: string,
@@ -522,6 +494,7 @@ export default function DomiciliationModule() {
               dossiers={filteredDossiers}
               onNew={() => setView('nouveau')}
               onImport={() => setImportOpen(true)}
+              onTallyImport={() => setTallyOpen(true)}
               onSelect={(id) => { setSelectedId(id); setView('fiche'); }}
               searchTerm={searchTerm}
               setSearchTerm={setSearchTerm}
@@ -572,6 +545,12 @@ export default function DomiciliationModule() {
         onClose={() => setImportOpen(false)}
         onConfirm={handleImportFromFolder}
       />
+
+      <TallyImportModal
+        isOpen={tallyOpen}
+        onClose={() => setTallyOpen(false)}
+        onImported={handleTallyImported}
+      />
     </div>
   );
 }
@@ -580,7 +559,7 @@ export default function DomiciliationModule() {
 
 // --- Dashboard Component ---
 
-function Dashboard({ stats, dossiers, onNew, onImport, onSelect, searchTerm, setSearchTerm, isSyncing, syncError, lastSync, onSync, onPull }: any) {
+function Dashboard({ stats, dossiers, onNew, onImport, onTallyImport, onSelect, searchTerm, setSearchTerm, isSyncing, syncError, lastSync, onSync, onPull }: any) {
   const [viewClientOpen, setViewClientOpen] = useState(false);
   return (
     <div className="space-y-6">
@@ -702,7 +681,7 @@ function Dashboard({ stats, dossiers, onNew, onImport, onSelect, searchTerm, set
         </div>
         <div className="flex flex-wrap gap-3 w-full md:w-auto">
           <button
-            onClick={() => (window as any).simulateTally()}
+            onClick={onTallyImport}
             className="flex-1 md:flex-none bg-brand-light border border-slate-700 text-white font-bold px-5 py-3 rounded-xl flex items-center justify-center gap-2 hover:bg-slate-800 transition-all"
           >
             <RefreshCw className="w-5 h-5" />
