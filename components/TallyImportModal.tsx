@@ -1,9 +1,9 @@
-// Modal : import d'un client depuis la Google Sheet Tally.
-// Fetch CSV → parse → liste des lignes → Gemini analyse une ligne → crée le dossier.
+// Modal : import multi-sélection depuis la Google Sheet Tally.
+// Fetch CSV → liste avec checkboxes → import groupé séquentiel.
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
-  X, RefreshCw, Loader2, AlertTriangle, ExternalLink, Users, ChevronRight, CheckCircle
+  X, RefreshCw, Loader2, AlertTriangle, ExternalLink, Users, CheckCircle, Upload
 } from 'lucide-react';
 import { fetchSheetData, parseCSV } from '../services/googleSheetsService';
 import {
@@ -21,11 +21,17 @@ interface Props {
 
 const SHEET_EDIT_URL = "https://docs.google.com/spreadsheets/d/1UJrNyzwE5Haov1cS5Ylxa4ghJuRHKTjqWN_rzO-M9CE/edit";
 
+type RowStatus = 'pending' | 'uploading' | 'done' | 'error';
+
 const TallyImportModal: React.FC<Props> = ({ isOpen, onClose, onImported }) => {
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<Record<string, string>[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [importingIdx, setImportingIdx] = useState<number | null>(null);
+
+  // Sélection : on tracke par index dans le tableau rows
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+  const [statuses, setStatuses] = useState<Map<number, { status: RowStatus; error?: string }>>(new Map());
+  const [importing, setImporting] = useState(false);
 
   const loadSheet = async () => {
     setLoading(true);
@@ -34,6 +40,8 @@ const TallyImportModal: React.FC<Props> = ({ isOpen, onClose, onImported }) => {
       const csv = await fetchSheetData();
       const parsed = parseCSV(csv);
       setRows(parsed.reverse()); // Plus récent d'abord
+      setSelected(new Set());
+      setStatuses(new Map());
     } catch (err: any) {
       setError(err.message || "Erreur récupération Google Sheet");
     } finally {
@@ -47,29 +55,73 @@ const TallyImportModal: React.FC<Props> = ({ isOpen, onClose, onImported }) => {
     }
   }, [isOpen]);
 
-  const handleImportRow = async (row: Record<string, string>, idx: number) => {
-    setImportingIdx(idx);
-    setError(null);
-    try {
-      // Mapping direct CSV Tally → DossierDomiciliation (pas besoin de Gemini, colonnes nommées)
-      const dossier = tallyRowToDossier(row);
-      await onImported(dossier);
-      onClose();
-    } catch (err: any) {
-      setError(err.message || "Erreur lors de l'import du client");
-    } finally {
-      setImportingIdx(null);
+  const toggleOne = (idx: number) => {
+    if (importing) return;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  const allSelected = rows.length > 0 && selected.size === rows.length;
+  const someSelected = selected.size > 0 && selected.size < rows.length;
+
+  const toggleAll = () => {
+    if (importing) return;
+    if (allSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(rows.map((_, idx) => idx)));
     }
   };
 
+  const handleImportSelected = async () => {
+    if (selected.size === 0) return;
+    setImporting(true);
+    setError(null);
+
+    const indices = Array.from(selected).sort((a, b) => a - b);
+    for (const idx of indices) {
+      // Skip if already done in a previous partial run
+      const current = statuses.get(idx);
+      if (current?.status === 'done') continue;
+
+      setStatuses((prev) => new Map(prev).set(idx, { status: 'uploading' }));
+      try {
+        const dossier = tallyRowToDossier(rows[idx]);
+        await onImported(dossier);
+        setStatuses((prev) => new Map(prev).set(idx, { status: 'done' }));
+      } catch (err: any) {
+        setStatuses((prev) => new Map(prev).set(idx, { status: 'error', error: err.message }));
+      }
+    }
+    setImporting(false);
+  };
+
   const handleClose = () => {
-    if (importingIdx !== null) return;
+    if (importing) return;
     setRows([]);
+    setSelected(new Set());
+    setStatuses(new Map());
     setError(null);
     onClose();
   };
 
+  const stats = useMemo(() => {
+    let done = 0, errored = 0;
+    statuses.forEach((s) => {
+      if (s.status === 'done') done++;
+      else if (s.status === 'error') errored++;
+    });
+    return { done, errored };
+  }, [statuses]);
+
   if (!isOpen) return null;
+
+  const canClose = !importing;
+  const canImport = !importing && selected.size > 0;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-brand-dark/90 backdrop-blur-sm">
@@ -81,33 +133,49 @@ const TallyImportModal: React.FC<Props> = ({ isOpen, onClose, onImported }) => {
             <div>
               <h2 className="text-lg font-black text-white">Import depuis Tally / Google Sheet</h2>
               <p className="text-[10px] text-slate-400">
-                {rows.length > 0 ? `${rows.length} réponse${rows.length > 1 ? 's' : ''} disponible${rows.length > 1 ? 's' : ''}` : 'Chargement…'}
+                {rows.length > 0
+                  ? `${rows.length} réponse${rows.length > 1 ? 's' : ''} · ${selected.size} sélectionnée${selected.size > 1 ? 's' : ''}`
+                  : 'Chargement…'}
+                {stats.done > 0 && ` · ${stats.done} importé${stats.done > 1 ? 's' : ''}`}
+                {stats.errored > 0 && ` · ${stats.errored} erreur${stats.errored > 1 ? 's' : ''}`}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <a
-              href={SHEET_EDIT_URL}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 transition"
-              title="Ouvrir la Google Sheet"
-            >
+            <a href={SHEET_EDIT_URL} target="_blank" rel="noopener noreferrer"
+               className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 transition" title="Ouvrir la Google Sheet">
               <ExternalLink className="w-4 h-4" />
             </a>
-            <button
-              onClick={loadSheet}
-              disabled={loading}
-              className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 transition disabled:opacity-50"
-              title="Recharger"
-            >
+            <button onClick={loadSheet} disabled={loading || importing}
+                    className="p-2 hover:bg-slate-800 rounded-lg text-slate-300 transition disabled:opacity-50" title="Recharger">
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
-            <button onClick={handleClose} disabled={importingIdx !== null} className="p-2 hover:bg-slate-800 rounded-lg transition disabled:opacity-50">
+            <button onClick={handleClose} disabled={!canClose}
+                    className="p-2 hover:bg-slate-800 rounded-lg transition disabled:opacity-50">
               <X className="w-5 h-5 text-slate-400" />
             </button>
           </div>
         </div>
+
+        {/* Toolbar : select all + count */}
+        {rows.length > 0 && (
+          <div className="px-5 py-2.5 border-b border-slate-800 flex items-center justify-between bg-brand-dark/40">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                ref={(el) => { if (el) el.indeterminate = someSelected; }}
+                onChange={toggleAll}
+                disabled={importing}
+                className="w-4 h-4 accent-brand-primary cursor-pointer disabled:cursor-not-allowed"
+              />
+              <span className="text-xs font-bold text-slate-200 uppercase tracking-widest">
+                {allSelected ? 'Tout désélectionner' : someSelected ? `${selected.size} sélectionné(s)` : 'Tout sélectionner'}
+              </span>
+            </label>
+            <span className="text-[10px] text-slate-500">Plus récents en haut</span>
+          </div>
+        )}
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-5">
@@ -124,9 +192,6 @@ const TallyImportModal: React.FC<Props> = ({ isOpen, onClose, onImported }) => {
               <div>
                 <p className="font-bold">Erreur</p>
                 <p>{error}</p>
-                <p className="mt-1 text-rose-400/70 italic">
-                  Vérifie que la Sheet est partagée en lecture publique (anyone with the link).
-                </p>
               </div>
             </div>
           )}
@@ -140,13 +205,34 @@ const TallyImportModal: React.FC<Props> = ({ isOpen, onClose, onImported }) => {
               {rows.map((row, idx) => {
                 const raisonSociale = guessRaisonSociale(row);
                 const email = guessEmail(row);
-                const formeJuridique = Object.keys(row).find((k) => /forme\s*juridique/i.test(k));
-                const formeVal = formeJuridique ? row[formeJuridique] : '';
+                const formeJuridiqueKey = Object.keys(row).find((k) => /forme\s*juridique/i.test(k));
+                const formeVal = formeJuridiqueKey ? row[formeJuridiqueKey] : '';
                 const submitted = row['Submitted at'] || '';
-                const isImporting = importingIdx === idx;
-                const isDisabled = importingIdx !== null && !isImporting;
+                const isChecked = selected.has(idx);
+                const rowStatus = statuses.get(idx);
+                const isDone = rowStatus?.status === 'done';
+                const isError = rowStatus?.status === 'error';
+                const isUploading = rowStatus?.status === 'uploading';
+
                 return (
-                  <li key={idx} className="bg-brand-dark border border-slate-700 rounded-lg p-3 flex items-center justify-between gap-3">
+                  <li
+                    key={idx}
+                    onClick={() => !isDone && toggleOne(idx)}
+                    className={`bg-brand-dark border rounded-lg p-3 flex items-center gap-3 cursor-pointer select-none transition ${
+                      isDone ? 'border-emerald-500/30 bg-emerald-500/5 cursor-default opacity-60'
+                      : isError ? 'border-rose-500/30 bg-rose-500/5'
+                      : isChecked ? 'border-brand-primary/50 bg-brand-primary/5'
+                      : 'border-slate-700 hover:border-slate-600'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      onChange={() => toggleOne(idx)}
+                      onClick={(e) => e.stopPropagation()}
+                      disabled={importing || isDone}
+                      className="w-4 h-4 accent-brand-primary flex-shrink-0 cursor-pointer disabled:cursor-not-allowed"
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-bold text-white truncate">{raisonSociale}</p>
                       <p className="text-xs text-slate-400 truncate">
@@ -154,24 +240,15 @@ const TallyImportModal: React.FC<Props> = ({ isOpen, onClose, onImported }) => {
                         {email}
                       </p>
                       {submitted && <p className="text-[10px] text-slate-500 mt-0.5">{submitted}</p>}
-                    </div>
-                    <button
-                      onClick={() => handleImportRow(row, idx)}
-                      disabled={isImporting || isDisabled}
-                      className="flex items-center gap-2 px-4 py-2 bg-brand-primary text-brand-dark text-xs font-black rounded-lg hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-                    >
-                      {isImporting ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          Import…
-                        </>
-                      ) : (
-                        <>
-                          Importer
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </>
+                      {isError && rowStatus?.error && (
+                        <p className="text-[10px] text-rose-400 mt-1">⚠ {rowStatus.error}</p>
                       )}
-                    </button>
+                    </div>
+                    <div className="w-6 flex justify-center flex-shrink-0">
+                      {isUploading && <Loader2 className="w-4 h-4 text-brand-primary animate-spin" />}
+                      {isDone && <CheckCircle className="w-4 h-4 text-emerald-400" />}
+                      {isError && <AlertTriangle className="w-4 h-4 text-rose-400" />}
+                    </div>
                   </li>
                 );
               })}
@@ -180,11 +257,29 @@ const TallyImportModal: React.FC<Props> = ({ isOpen, onClose, onImported }) => {
         </div>
 
         {/* Footer */}
-        <div className="p-3 border-t border-slate-800 flex justify-between items-center text-[10px] text-slate-500">
-          <span>Sheet : ...M9CE — Tally → Sheet → Supabase</span>
-          <span className="flex items-center gap-1">
-            <CheckCircle className="w-3 h-3" /> Mapping direct (sans IA)
+        <div className="p-4 border-t border-slate-800 flex items-center justify-between gap-3">
+          <span className="text-[10px] text-slate-500 hidden md:block">
+            Sheet ...M9CE — mapping direct (sans IA)
           </span>
+          <div className="flex items-center gap-3 ml-auto">
+            <button
+              onClick={handleClose}
+              disabled={!canClose}
+              className="px-4 py-2 bg-slate-800 text-slate-200 rounded-lg text-sm font-bold hover:bg-slate-700 transition disabled:opacity-50"
+            >
+              {importing ? 'Import en cours…' : 'Fermer'}
+            </button>
+            <button
+              onClick={handleImportSelected}
+              disabled={!canImport}
+              className="flex items-center gap-2 px-5 py-2 bg-brand-primary text-brand-dark rounded-lg text-sm font-black hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              {importing
+                ? `Import… (${stats.done}/${selected.size})`
+                : `Importer ${selected.size > 0 ? `(${selected.size})` : ''}`}
+            </button>
+          </div>
         </div>
       </div>
     </div>

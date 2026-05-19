@@ -412,9 +412,11 @@ export default function DomiciliationModule() {
   const [tallyOpen, setTallyOpen] = useState(false);
 
   const handleTallyImported = useCallback(async (nouveau: DossierDomiciliation) => {
+    // Bulk import : on ajoute à la liste et on persist, mais on ne navigue PAS
+    // vers la fiche (sinon le bulk saute vers le dernier dossier importé).
+    // L'utilisateur ferme le modal manuellement et voit les nouvelles entrées
+    // dans la liste du dashboard.
     setDossiers(prev => [nouveau, ...prev]);
-    setSelectedId(nouveau.id);
-    setView('fiche');
     await saveDossier(nouveau);
   }, []);
 
